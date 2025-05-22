@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import load_model
@@ -22,10 +22,11 @@ CORS(app)
 app_start_time = time.time()
 total_requests = 0
 successful_predictions = 0
+prediction_stats = {class_name: 0 for class_name in ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']}
 
 # Konfigurasi path model - gunakan path absolut untuk memastikan model ditemukan
 current_dir = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(current_dir, 'model-Retinopati.h5')
+MODEL_PATH = os.path.join(current_dir, 'model-Retinopaty.h5')
 
 # Pesan info awal
 print(f"Flask API untuk RetinaScan (TensorFlow {tf.__version__})")
@@ -46,17 +47,23 @@ except Exception as e:
     # Tetap jalankan aplikasi dalam mode simulasi
     model = None
 
-# Kelas output model (disesuaikan dengan model yang memiliki 2 kelas)
-CLASSES = ['Normal', 'Diabetic Retinopathy']
+# Kelas output model (disesuaikan dengan model yang memiliki 5 kelas)
+CLASSES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
 # Mapping output ke bahasa Indonesia
 SEVERITY_MAPPING = {
-    'Normal': 'Tidak ada',
-    'Diabetic Retinopathy': 'Ada'
+    'No DR': 'Tidak ada DR',
+    'Mild': 'DR Ringan',
+    'Moderate': 'DR Sedang',
+    'Severe': 'DR Berat',
+    'Proliferative DR': 'DR Proliferatif'
 }
 # Mapping tingkat keparahan
 SEVERITY_LEVEL_MAPPING = {
-    'Normal': 0,
-    'Diabetic Retinopathy': 1
+    'No DR': 0,
+    'Mild': 1,
+    'Moderate': 2,
+    'Severe': 3,
+    'Proliferative DR': 4
 }
 
 def preprocess_image(img_bytes):
@@ -136,7 +143,7 @@ def health_check():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    global total_requests, successful_predictions
+    global total_requests, successful_predictions, prediction_stats
     
     try:
         total_requests += 1
@@ -164,6 +171,9 @@ def predict():
                 # Ambil kelas dengan probabilitas tertinggi
                 predicted_class_index = np.argmax(predictions[0])
                 predicted_class = CLASSES[predicted_class_index]
+                
+                # Update statistik prediksi
+                prediction_stats[predicted_class] += 1
                 
                 # Ambil nilai confidence (probabilitas)
                 confidence = float(predictions[0][predicted_class_index])
@@ -201,9 +211,12 @@ def predict():
         
         # Pilih kelas secara acak dengan bias ke kelas tertentu (untuk simulasi)
         import random
-        weights = [0.6, 0.4]  # Lebih sering menghasilkan kelas normal
+        weights = [0.5, 0.2, 0.15, 0.1, 0.05]  # Distribusi probabilitas untuk 5 kelas
         predicted_class_index = random.choices(range(len(CLASSES)), weights=weights)[0]
         predicted_class = CLASSES[predicted_class_index]
+        
+        # Update statistik prediksi
+        prediction_stats[predicted_class] += 1
         
         # Generate confidence score yang realistis
         base_confidence = 0.75
@@ -222,7 +235,10 @@ def predict():
                 'class': predicted_class,
                 'probabilities': {
                     CLASSES[0]: round(random.random() * 0.1, 3),
-                    CLASSES[1]: round(random.random() * 0.1, 3)
+                    CLASSES[1]: round(random.random() * 0.1, 3),
+                    CLASSES[2]: round(random.random() * 0.1, 3),
+                    CLASSES[3]: round(random.random() * 0.1, 3),
+                    CLASSES[4]: round(random.random() * 0.1, 3)
                 },
                 'is_simulation': True
             }
@@ -265,6 +281,104 @@ def model_info():
             
         return jsonify(info_data)
     
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/download-model', methods=['GET'])
+def download_model():
+    """Endpoint untuk mengunduh file model-Retinopaty.h5"""
+    try:
+        if not os.path.exists(MODEL_PATH):
+            return jsonify({'error': 'File model tidak ditemukan'}), 404
+        
+        # Kirim file model sebagai respons
+        return send_file(
+            MODEL_PATH, 
+            mimetype='application/octet-stream',
+            as_attachment=True,
+            download_name='model-Retinopaty.h5'
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/classes', methods=['GET'])
+def get_classes():
+    """Endpoint untuk mendapatkan informasi tentang semua kelas retinopati dan deskripsinya"""
+    try:
+        # Deskripsi untuk setiap kelas retinopati
+        class_descriptions = {
+            'No DR': 'Tidak ada tanda-tanda retinopati diabetik pada retina.',
+            'Mild': 'Retinopati diabetik non-proliferatif ringan dengan sedikit mikroaneurisma.',
+            'Moderate': 'Retinopati diabetik non-proliferatif sedang dengan adanya mikroaneurisma, perdarahan intraretinal, dan cotton wool spots.',
+            'Severe': 'Retinopati diabetik non-proliferatif berat dengan banyak perdarahan, venous beading, dan IRMA (Intraretinal Microvascular Abnormalities).',
+            'Proliferative DR': 'Retinopati diabetik proliferatif dengan pembentukan pembuluh darah baru (neovaskularisasi) dan jaringan fibrosa pada retina.'
+        }
+
+        # Rekomendasi tindakan untuk setiap kelas
+        recommendations = {
+            'No DR': 'Lakukan pemeriksaan rutin setiap tahun.',
+            'Mild': 'Kontrol gula darah dan tekanan darah. Pemeriksaan ulang dalam 9-12 bulan.',
+            'Moderate': 'Konsultasi dengan dokter spesialis mata. Pemeriksaan ulang dalam 6 bulan.',
+            'Severe': 'Rujukan segera ke dokter spesialis mata. Pemeriksaan ulang dalam 2-3 bulan.',
+            'Proliferative DR': 'Rujukan segera ke dokter spesialis mata untuk evaluasi dan kemungkinan tindakan laser atau operasi.'
+        }
+
+        # Menggabungkan semua informasi
+        classes_info = []
+        for i, class_name in enumerate(CLASSES):
+            classes_info.append({
+                'id': i,
+                'name': class_name,
+                'severity': SEVERITY_MAPPING[class_name],
+                'severity_level': SEVERITY_LEVEL_MAPPING[class_name],
+                'description': class_descriptions[class_name],
+                'recommendation': recommendations[class_name]
+            })
+
+        return jsonify({
+            'status': 'success',
+            'classes': classes_info
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/statistics', methods=['GET'])
+def get_statistics():
+    """Endpoint untuk mendapatkan statistik prediksi"""
+    global total_requests, successful_predictions, prediction_stats, app_start_time
+    
+    try:
+        # Hitung uptime
+        uptime_seconds = time.time() - app_start_time
+        days, remainder = divmod(uptime_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        uptime_formatted = f"{int(days)}d {int(hours)}h {int(minutes)}m {int(seconds)}s"
+        
+        # Hitung persentase untuk setiap kelas
+        percentages = {}
+        if successful_predictions > 0:
+            for class_name, count in prediction_stats.items():
+                percentages[class_name] = round((count / successful_predictions) * 100, 2)
+        else:
+            percentages = {class_name: 0 for class_name in prediction_stats.keys()}
+        
+        # Statistik
+        stats = {
+            'total_requests': total_requests,
+            'successful_predictions': successful_predictions,
+            'uptime': uptime_formatted,
+            'prediction_counts': prediction_stats,
+            'prediction_percentages': percentages,
+            'model_loaded': model is not None,
+            'simulation_mode': model is None
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'statistics': stats
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
