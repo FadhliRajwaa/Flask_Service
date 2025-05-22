@@ -7,6 +7,8 @@ from PIL import Image
 import io
 import os
 import sys
+import time
+import psutil
 from flask_cors import CORS
 
 # Konfigurasi logging untuk TensorFlow
@@ -15,6 +17,11 @@ print(f"TensorFlow version: {tf.__version__}")
 
 app = Flask(__name__)
 CORS(app)
+
+# Variabel global untuk pelacakan
+app_start_time = time.time()
+total_requests = 0
+successful_predictions = 0
 
 # Konfigurasi path model - gunakan path absolut untuk memastikan model ditemukan
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -77,9 +84,63 @@ def preprocess_image(img_bytes):
         print(f"Error saat preprocessing gambar: {e}")
         raise
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Endpoint untuk memeriksa kesehatan API"""
+    global total_requests, successful_predictions
+    
+    try:
+        # Dapatkan penggunaan sumber daya
+        memory_usage = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024  # Convert to MB
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        disk_usage = psutil.disk_usage('/').percent
+        
+        # Hitung uptime
+        uptime_seconds = time.time() - app_start_time
+        days, remainder = divmod(uptime_seconds, 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        
+        uptime_formatted = f"{int(days)}d {int(hours)}h {int(minutes)}m {int(seconds)}s"
+        
+        # Status aplikasi
+        status = {
+            'status': 'healthy',
+            'version': '1.0.0',
+            'uptime': uptime_formatted,
+            'resources': {
+                'memory_usage_mb': round(memory_usage, 2),
+                'cpu_percent': cpu_percent,
+                'disk_usage_percent': disk_usage
+            },
+            'model': {
+                'loaded': model is not None,
+                'simulation_mode': model is None,
+                'path': MODEL_PATH,
+                'exists': os.path.exists(MODEL_PATH)
+            },
+            'stats': {
+                'total_requests': total_requests,
+                'successful_predictions': successful_predictions
+            },
+            'tensorflow_version': tf.__version__
+        }
+        
+        return jsonify(status)
+    except Exception as e:
+        error_status = {
+            'status': 'unhealthy',
+            'error': str(e)
+        }
+        return jsonify(error_status), 500
+
 @app.route('/predict', methods=['POST'])
 def predict():
+    global total_requests, successful_predictions
+    
     try:
+        total_requests += 1
+        
         if 'file' not in request.files:
             return jsonify({'error': 'Tidak ada file gambar'}), 400
         
@@ -123,6 +184,7 @@ def predict():
                 }
                 
                 print(f"Prediksi untuk gambar {file.filename}: {severity} (confidence: {confidence:.2f})")
+                successful_predictions += 1
                 
                 return jsonify(result)
             except Exception as e:
@@ -170,6 +232,7 @@ def predict():
         result['raw_prediction']['probabilities'][predicted_class] = confidence
         
         print(f"Simulasi prediksi untuk gambar {file.filename}: {severity} (confidence: {confidence:.2f})")
+        successful_predictions += 1
         
         return jsonify(result)
     
