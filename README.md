@@ -6,7 +6,21 @@ Aplikasi ini menggunakan model deep learning untuk mendeteksi tingkat keparahan 
 
 ### Menjalankan Secara Lokal
 
-#### Metode 1: Menggunakan run_local.py (Direkomendasikan)
+#### Metode 1: Menggunakan streamlit_app.py (Direkomendasikan untuk Streamlit Cloud)
+
+1. Pastikan Python terinstal
+2. Instal dependensi:
+   ```
+   pip install -r requirements.txt
+   ```
+3. Jalankan aplikasi Streamlit:
+   ```
+   streamlit run streamlit_app.py
+   ```
+   
+   Ini akan menjalankan versi aplikasi yang lebih sederhana dalam mode simulasi tanpa memerlukan TensorFlow.
+
+#### Metode 2: Menggunakan run_local.py
 
 1. Pastikan Python 3.7-3.9 terinstal (Python 3.9 direkomendasikan)
 2. Instal dependensi:
@@ -23,7 +37,7 @@ Aplikasi ini menggunakan model deep learning untuk mendeteksi tingkat keparahan 
    - Membuka browser secara otomatis
    - Menjalankan aplikasi Streamlit
 
-#### Metode 2: Menjalankan Streamlit secara langsung
+#### Metode 3: Menjalankan Streamlit secara langsung
 
 1. Pastikan Python 3.7-3.9 terinstal
 2. Instal dependensi:
@@ -40,14 +54,14 @@ Aplikasi ini menggunakan model deep learning untuk mendeteksi tingkat keparahan 
 
 1. Buat akun di [Streamlit Cloud](https://streamlit.io/cloud)
 2. Buat repository GitHub baru dan unggah kode aplikasi ini
-3. Pastikan file model `model-Retinopaty.h5` tersedia di repository atau di cloud storage
-4. Di Streamlit Cloud, pilih "New app" dan pilih repository GitHub Anda
-5. Pilih file `app.py` sebagai entrypoint
-6. Klik "Deploy"
+3. Di Streamlit Cloud, pilih "New app" dan pilih repository GitHub Anda
+4. Pilih file `streamlit_app.py` sebagai entrypoint (bukan app.py)
+5. Klik "Deploy"
 
 ## Struktur File
 
-- `app.py` - Aplikasi Streamlit utama
+- `app.py` - Aplikasi Streamlit utama (dengan TensorFlow)
+- `streamlit_app.py` - Versi sederhana aplikasi Streamlit (mode simulasi)
 - `requirements.txt` - Daftar dependensi
 - `model-Retinopaty.h5` - Model terlatih untuk deteksi retinopati diabetik
 - `.streamlit/` - Folder konfigurasi Streamlit
@@ -56,11 +70,10 @@ Aplikasi ini menggunakan model deep learning untuk mendeteksi tingkat keparahan 
 
 ## Catatan Penting
 
+- Untuk deployment di Streamlit Cloud, gunakan file `streamlit_app.py` yang berjalan dalam mode simulasi
 - Model membutuhkan gambar retina dengan ukuran 224x224 piksel
 - Jika model tidak dapat dimuat, aplikasi akan berjalan dalam mode simulasi
 - Untuk penggunaan produksi, pastikan model terlatih dengan baik dan divalidasi oleh ahli medis
-- Aplikasi ini memerlukan TensorFlow yang kompatibel dengan versi Python Anda
-- Jika mengalami masalah dengan TensorFlow, coba gunakan versi Python 3.9 yang direkomendasikan
 
 ## Troubleshooting
 
@@ -68,12 +81,12 @@ Aplikasi ini menggunakan model deep learning untuk mendeteksi tingkat keparahan 
 
 Jika mengalami masalah dengan instalasi TensorFlow:
 
-1. Pastikan menggunakan Python 3.7-3.9 (direkomendasikan Python 3.9)
-2. Coba instal versi TensorFlow yang sesuai:
+1. Gunakan versi aplikasi yang lebih sederhana:
    ```
-   pip install tensorflow-cpu==2.9.1
+   streamlit run streamlit_app.py
    ```
-3. Jika masih mengalami masalah, jalankan aplikasi dalam mode simulasi dengan mengatur variabel lingkungan:
+
+2. Atau jalankan aplikasi dalam mode simulasi dengan mengatur variabel lingkungan:
    ```
    SIMULATION_MODE=1 streamlit run app.py
    ```

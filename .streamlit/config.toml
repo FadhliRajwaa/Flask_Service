@@ -18,4 +18,8 @@ magicEnabled = true
 installTracer = false
 
 [logger]
-level = "info" 
+level = "info"
+
+[client]
+showErrorDetails = true
+toolbarMode = "auto" 

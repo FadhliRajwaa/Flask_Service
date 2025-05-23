@@ -9,6 +9,20 @@ import psutil
 from PIL import Image
 import io
 
+# Set mode simulasi sebagai default
+simulation_mode = True
+TF_AVAILABLE = False
+
+# Sidebar info
+st.sidebar.title("Informasi Sistem")
+st.sidebar.write(f"Platform: {platform.system()} {platform.release()}")
+st.sidebar.write(f"Python: {sys.version.split()[0]}")
+
+# Memori dan CPU info
+memory = psutil.virtual_memory()
+st.sidebar.write(f"Memory: {memory.percent}% used")
+st.sidebar.write(f"CPU: {psutil.cpu_percent()}% used")
+
 # Coba import TensorFlow, tetapi jangan gagal jika tidak ada
 try:
     import tensorflow as tf
@@ -25,20 +39,26 @@ try:
     
     TF_AVAILABLE = True
     st.sidebar.success("TensorFlow imported successfully")
+    
+    # Jika TensorFlow tersedia, coba matikan mode simulasi
+    simulation_mode = False
 except ImportError:
     TF_AVAILABLE = False
-    st.sidebar.error("TensorFlow not available, running in simulation mode only")
+    st.sidebar.warning("TensorFlow not available, running in simulation mode only")
 except Exception as general_tf_error:
     st.sidebar.error(f"TensorFlow error: {general_tf_error}")
     TF_AVAILABLE = False
-    st.sidebar.error("TensorFlow had error during import, running in simulation mode only")
+    st.sidebar.warning("TensorFlow had error during import, running in simulation mode only")
 
 # Cek apakah mode simulasi diaktifkan
 # Jika FORCE_MODEL=1, abaikan SIMULATION_MODE dan paksa menggunakan model
 # Atau jika SIMULATION_MODE tidak ditetapkan, paksa menggunakan model
 force_model = os.environ.get("FORCE_MODEL") == "1"
 # Periksa SIMULATION_MODE, jika tidak ada atau bukan "1", maka simulation_mode = False
-simulation_mode = os.environ.get("SIMULATION_MODE") == "1" and not force_model
+if os.environ.get("SIMULATION_MODE") == "1":
+    simulation_mode = True
+elif force_model and TF_AVAILABLE:
+    simulation_mode = False
 
 st.sidebar.write(f"SIMULATION_MODE env: {os.environ.get('SIMULATION_MODE')}")
 st.sidebar.write(f"FORCE_MODEL env: {os.environ.get('FORCE_MODEL')}")
@@ -64,6 +84,11 @@ model_paths = [
 # Fungsi untuk memuat model
 @st.cache_resource
 def load_model_from_path():
+    # Jika TensorFlow tidak tersedia, langsung return None
+    if not TF_AVAILABLE:
+        st.sidebar.warning("TensorFlow tidak tersedia, tidak dapat memuat model")
+        return None
+        
     # Cek semua kemungkinan lokasi
     model_path = None
     for path in model_paths:
@@ -209,17 +234,7 @@ def main():
     st.title("RetinaScan - Deteksi Retinopati Diabetik")
     st.write("Unggah gambar retina untuk mendeteksi tingkat retinopati diabetik")
     
-    # Sidebar informasi
-    st.sidebar.title("Informasi Sistem")
-    st.sidebar.write(f"Platform: {platform.system()} {platform.release()}")
-    st.sidebar.write(f"Python: {sys.version.split()[0]}")
-    
-    # Memori dan CPU info
-    memory = psutil.virtual_memory()
-    st.sidebar.write(f"Memory: {memory.percent}% used")
-    st.sidebar.write(f"CPU: {psutil.cpu_percent()}% used")
-    
-    # Load model
+    # Load model jika TensorFlow tersedia dan tidak dalam mode simulasi
     model = None
     if TF_AVAILABLE and not simulation_mode:
         model = load_model_from_path()

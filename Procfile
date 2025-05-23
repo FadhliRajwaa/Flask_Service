@@ -1,1 +1,1 @@
-web: gunicorn app:app --timeout 300 --workers 1 --threads 2 --log-level debug --max-requests 1 
+web: streamlit run streamlit_app.py --server.port $PORT 
