@@ -32,7 +32,7 @@ def load_keras_model():
             logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
             logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
             
-            # TensorFlow 2.12.0 masih bisa menggunakan parameter compile=True
+            # TF 2.10 compatible loading
             model = load_model(MODEL_PATH)
             logger.info("Model berhasil dimuat!")
             return True
@@ -138,8 +138,10 @@ def predict():
             'message': f'Error saat melakukan prediksi: {str(e)}'
         }), 500
 
-# Inisialisasi model
-with app.app_context():
+# Flask 2.2.x compatibility - inisialisasi pada request pertama
+@app.before_request
+def initialize():
+    global model
     if model is None:
         load_keras_model()
 
