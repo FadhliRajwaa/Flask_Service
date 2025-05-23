@@ -33,7 +33,7 @@ successful_predictions = 0
 
 # Konfigurasi path model - gunakan path absolut untuk memastikan model ditemukan
 current_dir = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(current_dir, 'model-Retinopati.h5')
+MODEL_PATH = os.path.join(current_dir, 'model-Retinopaty.h5')
 
 # Pesan info awal
 if TENSORFLOW_AVAILABLE:
