@@ -2,13 +2,13 @@ import os
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import tensorflow as tf
-from tensorflow import __version__ as tf_version
 from PIL import Image
 import io
 import base64
 import logging
 import sys
+import gc
+import tensorflow as tf
 
 # Konfigurasi logging
 logging.basicConfig(level=logging.INFO)
@@ -19,39 +19,43 @@ CORS(app)  # Ini penting untuk integrasi dengan Node.js (cross-origin requests)
 
 # Load model
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model-Retinopaty.h5')
+
+# Class names untuk model Retinopati
+CLASS_NAMES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
+
+# Model akan dimuat hanya saat diperlukan
 model = None
 
-def load_keras_model():
+def load_model_from_file():
     global model
     try:
         logger.info(f"Python version: {sys.version}")
-        logger.info(f"Mencoba memuat model dari: {MODEL_PATH}")
-        logger.info(f"Menggunakan TensorFlow versi: {tf_version}")
-        logger.info(f"Menggunakan NumPy versi: {np.__version__}")
+        logger.info(f"TensorFlow version: {tf.__version__}")
+        logger.info(f"NumPy version: {np.__version__}")
         
-        if os.path.exists(MODEL_PATH):
-            logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
-            logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
-            
-            # Custom objects untuk menangani layer khusus
-            custom_objects = {}
-            
-            # Tidak menggunakan parameter compile untuk menghindari masalah
-            model = tf.keras.models.load_model(
-                MODEL_PATH,
-                custom_objects=custom_objects,
-                compile=False
-            )
-            
-            logger.info(f"Model berhasil dimuat dengan struktur: {model.summary()}")
-            return True
-        else:
-            logger.error(f"File model tidak ditemukan di {MODEL_PATH}")
+        if not os.path.exists(MODEL_PATH):
+            logger.error(f"Model tidak ditemukan di {MODEL_PATH}")
             return False
+                
+        logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
+        
+        # Import yang diperlukan
+        from tensorflow.keras.models import load_model
+        
+        # Coba dengan custom_objects kosong
+        custom_objects = {}
+        
+        # Load model dengan explicit settings
+        model = load_model(
+            MODEL_PATH,
+            custom_objects=custom_objects,
+            compile=False
+        )
+        
+        logger.info("Model berhasil dimuat!")
+        return True
     except Exception as e:
         logger.error(f"Error saat memuat model: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
-        logger.error(f"Error args: {e.args}")
         return False
 
 # Fungsi untuk preprocessing gambar
@@ -67,10 +71,14 @@ def preprocess_image(img_data):
         
         # Convert ke array dan normalisasi
         img_array = np.array(img, dtype=np.float32)
+        
+        # Handle untuk gambar RGBA (with alpha channel)
+        if img_array.shape[-1] == 4:
+            img_array = img_array[:, :, :3]  # Keep only RGB
+        
         img_array = np.expand_dims(img_array, axis=0)
         img_array = img_array / 255.0  # Normalisasi
         
-        logger.info(f"Preprocessed image shape: {img_array.shape}")
         return img_array
     except Exception as e:
         logger.error(f"Error saat preprocessing gambar: {str(e)}")
@@ -79,46 +87,30 @@ def preprocess_image(img_data):
 # Route untuk health check - untuk integrasi dengan Node.js
 @app.route('/', methods=['GET'])
 def index():
-    global model
-    model_status = "belum dimuat"
-    
-    try:
-        if model is None:
-            # Coba muat model jika belum dimuat
-            load_keras_model()
-        
-        model_status = "dimuat" if model is not None else "belum dimuat"
-    except Exception as e:
-        logger.error(f"Error saat health check: {str(e)}")
-    
     file_exists = os.path.exists(MODEL_PATH)
     file_size = os.path.getsize(MODEL_PATH) / (1024 * 1024) if file_exists else 0
     
+    # Membuat model dan menyimpan status, namun tanpa memuat model penuh
+    model_status = "not_loaded"
+    
     return jsonify({
         'status': 'success',
-        'message': f'API Retinopati Diabetik berjalan dengan baik. Status model: {model_status}',
+        'message': 'API Retinopati Diabetik berjalan dengan baik',
         'model_info': {
             'exists': file_exists,
             'path': MODEL_PATH,
-            'size_mb': round(file_size, 2)
+            'size_mb': round(file_size, 2),
+            'status': model_status
         },
-        'tensorflow_version': tf_version,
-        'numpy_version': np.__version__,
-        'python_version': sys.version
+        'system_info': {
+            'python_version': sys.version,
+            'tensorflow_version': tf.__version__,
+        }
     })
 
 # Route untuk prediksi - endpoint utama yang akan diakses dari Node.js
 @app.route('/predict', methods=['POST'])
 def predict():
-    global model
-    if model is None:
-        # Coba muat model jika belum dimuat
-        if not load_keras_model():
-            return jsonify({
-                'status': 'error',
-                'message': 'Model belum dimuat dan gagal dimuat ulang'
-            }), 500
-    
     if 'image' not in request.json:
         return jsonify({
             'status': 'error',
@@ -126,6 +118,7 @@ def predict():
         }), 400
     
     try:
+        # 1. Preprocessing gambar
         img_data = request.json['image']
         processed_image = preprocess_image(img_data)
         
@@ -135,26 +128,42 @@ def predict():
                 'message': 'Gagal memproses gambar'
             }), 400
         
-        # Prediksi dengan wrapped dalam try-except
+        # 2. Memuat model jika belum dimuat
+        global model
+        if model is None:
+            success = load_model_from_file()
+            if not success:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Gagal memuat model'
+                }), 500
+        
+        # 3. Melakukan prediksi
         try:
-            # Convert image untuk compatibility jika perlu
-            if processed_image.shape[-1] == 4:  # RGBA
-                logger.info("Converting RGBA to RGB")
-                processed_image = processed_image[:, :, :, :3]  # Ambil hanya RGB
+            # Memastikan tensor memiliki shape yang benar
+            input_shape = model.input_shape[1:]
             
-            logger.info(f"Running prediction with image shape: {processed_image.shape}")
+            # Log untuk debugging
+            logger.info(f"Model input shape: {input_shape}")
+            logger.info(f"Processed image shape: {processed_image.shape}")
+            
+            # Pastikan gambar sesuai dengan input model
+            if processed_image.shape[1:] != input_shape:
+                processed_image = tf.image.resize(processed_image, (input_shape[0], input_shape[1]))
+                logger.info(f"Resized to match model input: {processed_image.shape}")
+            
+            # Prediksi
             prediction = model.predict(processed_image)
-            logger.info(f"Prediction result shape: {prediction.shape}")
             
-            # Interpretasi hasil (sesuaikan dengan kelas model Anda)
-            class_names = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
+            # Interpretasi hasil
             predicted_class = np.argmax(prediction[0])
             confidence = float(prediction[0][predicted_class])
             
+            # Respon dengan hasil prediksi
             return jsonify({
                 'status': 'success',
                 'prediction': {
-                    'class': class_names[predicted_class],
+                    'class': CLASS_NAMES[predicted_class],
                     'class_id': int(predicted_class),
                     'confidence': confidence
                 }
@@ -171,11 +180,12 @@ def predict():
             'status': 'error',
             'message': f'Error saat memproses request: {str(e)}'
         }), 500
+    finally:
+        # Clean up untuk mengurangi memory usage
+        tf.keras.backend.clear_session()
+        gc.collect()
 
 if __name__ == '__main__':
-    # Muat model saat aplikasi dimulai
-    load_keras_model()
-    
-    # Jalankan aplikasi
+    # Tidak memuat model saat startup untuk menghemat memori
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port) 
