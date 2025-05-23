@@ -2,8 +2,7 @@ import os
 import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+import tensorflow as tf
 from tensorflow import __version__ as tf_version
 from PIL import Image
 import io
@@ -32,8 +31,8 @@ def load_keras_model():
             logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
             logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
             
-            # TF 2.19.0 compatible loading - gunakan compile=False untuk menghindari warning
-            model = load_model(MODEL_PATH, compile=False)
+            # Gunakan tf.keras.models.load_model untuk TF 2.12.0
+            model = tf.keras.models.load_model(MODEL_PATH, compile=False)
             logger.info("Model berhasil dimuat!")
             return True
         else:
@@ -41,7 +40,15 @@ def load_keras_model():
             return False
     except Exception as e:
         logger.error(f"Error saat memuat model: {str(e)}")
-        return False
+        # Coba alternative loading method
+        try:
+            logger.info("Mencoba metode alternatif untuk memuat model...")
+            model = tf.saved_model.load(MODEL_PATH)
+            logger.info("Model berhasil dimuat dengan metode alternatif!")
+            return True
+        except Exception as e2:
+            logger.error(f"Metode alternatif juga gagal: {str(e2)}")
+            return False
 
 # Fungsi untuk preprocessing gambar
 def preprocess_image(img_data):
@@ -54,7 +61,7 @@ def preprocess_image(img_data):
         img = img.resize((224, 224))
         
         # Convert ke array dan normalisasi
-        img_array = image.img_to_array(img)
+        img_array = np.array(img, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
         img_array = img_array / 255.0  # Normalisasi
         
@@ -67,11 +74,16 @@ def preprocess_image(img_data):
 @app.route('/', methods=['GET'])
 def index():
     global model
-    if model is None:
-        # Coba muat model jika belum dimuat
-        load_keras_model()
+    model_status = "belum dimuat"
+    try:
+        if model is None:
+            # Coba muat model jika belum dimuat
+            load_keras_model()
         
-    model_status = "dimuat" if model is not None else "belum dimuat"
+        model_status = "dimuat" if model is not None else "belum dimuat"
+    except Exception as e:
+        logger.error(f"Error saat health check: {str(e)}")
+    
     file_exists = os.path.exists(MODEL_PATH)
     file_size = os.path.getsize(MODEL_PATH) / (1024 * 1024) if file_exists else 0
     
@@ -116,8 +128,16 @@ def predict():
             }), 400
         
         # Prediksi
-        prediction = model.predict(processed_image)
-        
+        try:
+            # Mencoba metode predict standard
+            prediction = model.predict(processed_image)
+        except Exception as e:
+            logger.error(f"Error dengan model.predict: {str(e)}")
+            # Alternative prediction method for SavedModel
+            prediction = model(processed_image)
+            if isinstance(prediction, dict):
+                prediction = prediction['output']
+            
         # Interpretasi hasil (sesuaikan dengan kelas model Anda)
         class_names = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
         predicted_class = np.argmax(prediction[0])
@@ -137,13 +157,6 @@ def predict():
             'status': 'error',
             'message': f'Error saat melakukan prediksi: {str(e)}'
         }), 500
-
-# Flask 2.2.x compatibility - inisialisasi pada request pertama
-@app.before_request
-def initialize():
-    global model
-    if model is None:
-        load_keras_model()
 
 if __name__ == '__main__':
     # Muat model saat aplikasi dimulai
