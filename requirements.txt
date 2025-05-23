@@ -2,7 +2,6 @@ flask==2.2.3
 flask-cors==3.0.10
 # TensorFlow CPU khusus untuk deployment di lingkungan terbatas
 tensorflow==2.18.0
-tensorflow_intel==2.18.0
 h5py>=3.7.0
 numpy>=1.23.5
 Pillow==9.5.0
