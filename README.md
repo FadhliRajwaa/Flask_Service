@@ -1,100 +1,130 @@
-# RetinaScan - Deteksi Retinopati Diabetik
+# API Retinopati Diabetik
 
-Aplikasi ini menggunakan model deep learning untuk mendeteksi tingkat keparahan retinopati diabetik dari gambar retina.
+API Flask untuk klasifikasi Retinopati Diabetik menggunakan model deep learning.
 
-## Cara Menjalankan Aplikasi
+## Struktur Folder
 
-### Menjalankan Secara Lokal
+```
+backend/flask_service/
+  ├── app.py                 # File utama aplikasi Flask
+  ├── model-Retinopaty.h5    # Model deep learning untuk klasifikasi
+  ├── requirements.txt       # Dependensi Python
+  ├── Procfile              # Konfigurasi untuk deployment
+  ├── render.yaml           # Konfigurasi untuk Render
+  └── README.md             # Dokumentasi
+```
 
-#### Metode 1: Menggunakan streamlit_app.py (Direkomendasikan untuk Streamlit Cloud)
+## Penggunaan Lokal
 
-1. Pastikan Python terinstal
-2. Instal dependensi:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Jalankan aplikasi Streamlit:
-   ```
-   streamlit run streamlit_app.py
-   ```
-   
-   Ini akan menjalankan versi aplikasi yang lebih sederhana dalam mode simulasi tanpa memerlukan TensorFlow.
+1. Install dependensi:
+```bash
+pip install -r requirements.txt
+```
 
-#### Metode 2: Menggunakan run_local.py
+2. Jalankan aplikasi:
+```bash
+python app.py
+```
 
-1. Pastikan Python 3.7-3.9 terinstal (Python 3.9 direkomendasikan)
-2. Instal dependensi:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Jalankan script run_local.py:
-   ```
-   python run_local.py
-   ```
-   Script ini akan:
-   - Memeriksa semua dependensi yang diperlukan
-   - Mengunduh model jika belum tersedia
-   - Membuka browser secara otomatis
-   - Menjalankan aplikasi Streamlit
+3. API akan berjalan di `http://localhost:5000`
 
-#### Metode 3: Menjalankan Streamlit secara langsung
+## Endpoint API
 
-1. Pastikan Python 3.7-3.9 terinstal
-2. Instal dependensi:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Jalankan aplikasi Streamlit:
-   ```
-   streamlit run app.py
-   ```
-4. Buka browser dan akses `http://localhost:8501`
+### 1. Health Check
+- **URL**: `/`
+- **Method**: `GET`
+- **Response**: Status API dan status model
 
-### Deployment di Streamlit Cloud
+### 2. Prediksi Retinopati
+- **URL**: `/predict`
+- **Method**: `POST`
+- **Body**:
+```json
+{
+  "image": "BASE64_ENCODED_IMAGE"
+}
+```
+- **Response**:
+```json
+{
+  "status": "success",
+  "prediction": {
+    "class": "Nama Kelas",
+    "class_id": 0,
+    "confidence": 0.95
+  }
+}
+```
 
-1. Buat akun di [Streamlit Cloud](https://streamlit.io/cloud)
-2. Buat repository GitHub baru dan unggah kode aplikasi ini
-3. Di Streamlit Cloud, pilih "New app" dan pilih repository GitHub Anda
-4. Pilih file `streamlit_app.py` sebagai entrypoint (bukan app.py)
-5. Klik "Deploy"
+## Deployment ke Render
 
-## Struktur File
+1. Buat akun di [Render](https://render.com)
+2. Buat Web Service baru dan pilih "Build and deploy from a Git repository"
+3. Hubungkan dengan repository GitHub Anda
+4. Konfigurasi:
+   - **Name**: retinopathy-api
+   - **Environment**: Python
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `gunicorn app:app`
+   - **Plan**: Free (atau sesuai kebutuhan)
+   - **Advanced**:
+     - Add Environment Variable: `TF_CPP_MIN_LOG_LEVEL` = `2`
+     - Add Environment Variable: `PYTHON_VERSION` = `3.9.16`
+5. Klik "Create Web Service"
 
-- `app.py` - Aplikasi Streamlit utama (dengan TensorFlow)
-- `streamlit_app.py` - Versi sederhana aplikasi Streamlit (mode simulasi)
-- `requirements.txt` - Daftar dependensi
-- `model-Retinopaty.h5` - Model terlatih untuk deteksi retinopati diabetik
-- `.streamlit/` - Folder konfigurasi Streamlit
-- `download_model.py` - Script untuk mengunduh model jika belum tersedia
-- `run_local.py` - Script untuk menjalankan aplikasi secara lokal
+## Integrasi dengan Node.js Backend
+
+Untuk mengintegrasikan API Flask ini dengan backend Node.js, Anda dapat menggunakan fetch atau axios untuk memanggil endpoint API:
+
+```javascript
+// Contoh menggunakan axios di Node.js
+const axios = require('axios');
+const fs = require('fs');
+
+// Fungsi untuk mengkonversi gambar ke base64
+function imageToBase64(imagePath) {
+  const image = fs.readFileSync(imagePath);
+  return Buffer.from(image).toString('base64');
+}
+
+// Endpoint Flask
+const FLASK_API_URL = process.env.FLASK_API_URL || 'http://localhost:5000';
+
+// Contoh fungsi untuk prediksi retinopati
+async function predictRetinopathy(imagePath) {
+  try {
+    const imageBase64 = imageToBase64(imagePath);
+    
+    const response = await axios.post(`${FLASK_API_URL}/predict`, {
+      image: imageBase64
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error saat melakukan prediksi:', error.message);
+    throw error;
+  }
+}
+
+// Contoh penggunaan dalam Express route
+app.post('/api/predict-retinopathy', async (req, res) => {
+  try {
+    const imagePath = req.file.path; // Jika menggunakan multer untuk upload
+    const result = await predictRetinopathy(imagePath);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+});
+```
 
 ## Catatan Penting
 
-- Untuk deployment di Streamlit Cloud, gunakan file `streamlit_app.py` yang berjalan dalam mode simulasi
-- Model membutuhkan gambar retina dengan ukuran 224x224 piksel
-- Jika model tidak dapat dimuat, aplikasi akan berjalan dalam mode simulasi
-- Untuk penggunaan produksi, pastikan model terlatih dengan baik dan divalidasi oleh ahli medis
-
-## Troubleshooting
-
-### Masalah TensorFlow
-
-Jika mengalami masalah dengan instalasi TensorFlow:
-
-1. Gunakan versi aplikasi yang lebih sederhana:
-   ```
-   streamlit run streamlit_app.py
-   ```
-
-2. Atau jalankan aplikasi dalam mode simulasi dengan mengatur variabel lingkungan:
-   ```
-   SIMULATION_MODE=1 streamlit run app.py
-   ```
-
-### Masalah Model
-
-Jika model tidak dapat dimuat:
-
-1. Jalankan `python download_model.py` untuk mengunduh model
-2. Pastikan model berada di lokasi yang benar (direktori yang sama dengan app.py)
-3. Periksa apakah model memiliki ukuran yang valid (sekitar 93MB)
+- Model membutuhkan gambar fundus mata yang diproses dengan ukuran 224x224 pixel
+- Gambar harus dikirim dalam format base64
+- Kelas output: ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
+- API menggunakan CORS sehingga bisa diakses dari domain yang berbeda
+- Pastikan untuk mengonfigurasi FLASK_API_URL di Node.js ke URL deployment Render Anda 

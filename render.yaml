@@ -1,25 +1,21 @@
 services:
+  # Backend API service
   - type: web
-    name: flask-service
+    name: retinopathy-api
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-    envVars:
-      - key: SIMULATION_MODE
-        value: "0"
-      - key: FORCE_MODEL
-        value: "1"
-      - key: TF_FORCE_GPU_ALLOW_GROWTH
-        value: "true"
-      - key: TF_CPP_MIN_LOG_LEVEL
-        value: "2"
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: MEMORY_LIMITED
-        value: "1"  # Set to 1 if running in memory-limited environment like Render free tier
+    autoDeploy: true
+    # Konfigurasi untuk model berukuran besar
     disk:
       name: model-storage
-      mountPath: /app/models
+      mountPath: /opt/render/project/src
       sizeGB: 1
-    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.16
+      - key: TF_CPP_MIN_LOG_LEVEL
+        value: 2
+      - key: PORT
+        value: 10000 
