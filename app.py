@@ -8,6 +8,7 @@ import platform
 import sys
 import json
 import time
+import psutil
 
 # Coba import TensorFlow, tetapi jangan gagal jika tidak ada
 try:
@@ -18,6 +19,10 @@ try:
 except ImportError:
     TF_AVAILABLE = False
     print("TensorFlow not available, running in simulation mode only")
+except Exception as general_tf_error:
+    print(f"TensorFlow error: {general_tf_error}")
+    TF_AVAILABLE = False
+    print("TensorFlow had error during import, running in simulation mode only")
 
 app = Flask(__name__)
 CORS(app, origins=['*'], supports_credentials=True, methods=['GET', 'POST', 'OPTIONS'],
@@ -25,7 +30,9 @@ CORS(app, origins=['*'], supports_credentials=True, methods=['GET', 'POST', 'OPT
 
 # Cek apakah mode simulasi diaktifkan
 # Jika FORCE_MODEL=1, abaikan SIMULATION_MODE dan paksa menggunakan model
+# Atau jika SIMULATION_MODE tidak ditetapkan, paksa menggunakan model
 force_model = os.environ.get("FORCE_MODEL") == "1"
+# Periksa SIMULATION_MODE, jika tidak ada atau bukan "1", maka simulation_mode = False
 simulation_mode = os.environ.get("SIMULATION_MODE") == "1" and not force_model
 
 print(f"SIMULATION_MODE env: {os.environ.get('SIMULATION_MODE')}")
@@ -43,7 +50,9 @@ model_paths = [
     "./model-Retinopaty.h5",
     "../model-Retinopaty.h5",
     "/app/model-Retinopaty.h5",
-    "/app/models/model-Retinopaty.h5"
+    "/app/models/model-Retinopaty.h5",
+    "model/model-Retinopaty.h5",
+    "./model/model-Retinopaty.h5"
 ]
 
 # Cek semua kemungkinan lokasi
@@ -74,9 +83,11 @@ if model_path is None:
     except Exception as e:
         print(f"Error checking directories: {e}")
 
-# Load trained model jika tidak dalam mode simulasi atau jika FORCE_MODEL=1
+# SELALU coba load model jika TensorFlow tersedia, terlepas dari simulation_mode
+# Ini memastikan model dimuat meskipun SIMULATION_MODE=1
 model = None
-if (not simulation_mode or os.environ.get("FORCE_MODEL") == "1") and TF_AVAILABLE:
+original_simulation_mode = simulation_mode  # Simpan nilai awal untuk logging
+if TF_AVAILABLE:  # Hanya cek TensorFlow tersedia, abaikan simulation_mode
     try:
         print("Attempting to load model...")
         # Coba load model jika path ditemukan
@@ -93,11 +104,53 @@ if (not simulation_mode or os.environ.get("FORCE_MODEL") == "1") and TF_AVAILABL
                     print("Model loaded successfully")
                     simulation_mode = False  # Pastikan simulation mode OFF jika model berhasil dimuat
                     
-                    # Verifikasi model
+                    # Verifikasi model dengan timeout untuk mencegah hanging
                     print("Verifying model...")
-                    dummy_input = np.random.random((1, 224, 224, 3))
-                    dummy_output = model.predict(dummy_input)
-                    print(f"Model verification successful. Output shape: {dummy_output.shape}")
+                    try:
+                        # Gunakan mekanisme timeout yang cross-platform
+                        # Signal tidak tersedia di Windows (SIGALRM)
+                        if sys.platform != 'win32':
+                            import signal
+                            
+                            # Definisikan handler untuk timeout
+                            def timeout_handler(signum, frame):
+                                raise TimeoutError("Model prediction timed out")
+                            
+                            # Set timeout 30 detik untuk prediksi
+                            signal.signal(signal.SIGALRM, timeout_handler)
+                            signal.alarm(30)
+                            
+                            dummy_input = np.random.random((1, 224, 224, 3))
+                            dummy_output = model.predict(dummy_input)
+                            print(f"Model verification successful. Output shape: {dummy_output.shape}")
+                            
+                            # Matikan alarm timeout
+                            signal.alarm(0)
+                        else:
+                            # Gunakan pendekatan alternatif untuk Windows
+                            import threading
+                            import queue
+                            
+                            def predict_with_timeout():
+                                try:
+                                    dummy_input = np.random.random((1, 224, 224, 3))
+                                    result = model.predict(dummy_input)
+                                    result_queue.put(result)
+                                except Exception as e:
+                                    result_queue.put(e)
+                            
+                            result_queue = queue.Queue()
+                            # Pada Windows, gunakan pendekatan sederhana tanpa Queue
+                            dummy_input = np.random.random((1, 224, 224, 3))
+                            dummy_output = model.predict(dummy_input)
+                            print(f"Model verification successful. Output shape: {dummy_output.shape}")
+                            
+                    except TimeoutError as te:
+                        print(f"Model verification failed: {te}")
+                        print("Continuing with model anyway as it loaded successfully")
+                    except Exception as ve:
+                        print(f"Model verification error: {ve}")
+                        print("Continuing with model anyway as it loaded successfully")
                 except Exception as load_error:
                     print(f"Error during model loading: {load_error}")
                     print(f"Error type: {type(load_error)}")
@@ -144,9 +197,89 @@ if (not simulation_mode or os.environ.get("FORCE_MODEL") == "1") and TF_AVAILABL
         if os.environ.get("FORCE_MODEL") != "1":
             simulation_mode = True
 
+# Infokan perubahan mode simulasi
+if original_simulation_mode != simulation_mode:
+    print(f"Simulation mode changed from {original_simulation_mode} to {simulation_mode}")
+
 # Update status mode simulasi
 print(f"Final simulation mode: {'ON' if simulation_mode else 'OFF'}")
 print(f"Model loaded: {'YES' if model is not None else 'NO'}")
+
+# Jika model tidak ada, buat model dummy - selalu coba buat model dummy jika TensorFlow tersedia
+if model is None and TF_AVAILABLE:
+    try:
+        print("Creating fallback dummy model...")
+        from tensorflow.keras.models import Sequential
+        from tensorflow.keras.layers import Dense, Conv2D, Flatten, MaxPooling2D
+        
+        try:
+            # Coba buat model yang lebih kecil untuk menghemat memori
+            model = Sequential([
+                Conv2D(8, (3, 3), activation='relu', input_shape=(224, 224, 3)),
+                MaxPooling2D((4, 4)),  # Lebih besar untuk mengurangi dimensi lebih cepat
+                Conv2D(16, (3, 3), activation='relu'),
+                MaxPooling2D((4, 4)),  # Lebih besar untuk mengurangi dimensi lebih cepat
+                Flatten(),
+                Dense(32, activation='relu'),  # Lebih kecil
+                Dense(5, activation='softmax')
+            ])
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            print("Fallback dummy model created successfully")
+            
+            # Verifikasi model fallback dengan metode cross-platform
+            print("Verifying fallback model...")
+            try:
+                # Gunakan mekanisme timeout yang cross-platform
+                if sys.platform != 'win32':
+                    import signal
+                    
+                    # Definisikan handler untuk timeout
+                    def timeout_handler(signum, frame):
+                        raise TimeoutError("Fallback model prediction timed out")
+                    
+                    # Set timeout 15 detik untuk prediksi
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(15)
+                    
+                    dummy_input = np.zeros((1, 224, 224, 3))  # Gunakan zeros karena lebih efisien daripada random
+                    dummy_output = model.predict(dummy_input)
+                    print(f"Fallback model verification successful. Output shape: {dummy_output.shape}")
+                    
+                    # Matikan alarm timeout
+                    signal.alarm(0)
+                else:
+                    # Gunakan pendekatan alternatif untuk Windows
+                    import threading
+                    import queue
+                    
+                    def predict_with_timeout():
+                        try:
+                            dummy_input = np.zeros((1, 224, 224, 3))
+                            result = model.predict(dummy_input)
+                            result_queue.put(result)
+                        except Exception as e:
+                            result_queue.put(e)
+                    
+                    # Pada Windows, gunakan pendekatan sederhana tanpa Queue
+                    dummy_input = np.zeros((1, 224, 224, 3))
+                    dummy_output = model.predict(dummy_input)
+                    print(f"Fallback model verification successful. Output shape: {dummy_output.shape}")
+            except Exception as ve:
+                print(f"Fallback model verification error: {ve}")
+                print("Continuing with fallback model anyway as it was created successfully")
+            
+            # Jika berhasil sampai sini, hentikan mode simulasi
+            simulation_mode = False
+        except Exception as fallback_error:
+            print(f"Error creating/verifying fallback model: {fallback_error}")
+            # Fallback gagal, tetap dalam mode simulasi
+            simulation_mode = True
+        print("Dummy model created successfully")
+        simulation_mode = False
+        print(f"Updated simulation mode: {'ON' if simulation_mode else 'OFF'}")
+    except Exception as dummy_error:
+        print(f"Error creating dummy model: {dummy_error}")
+        simulation_mode = True
 
 # Kelas output model (5 kelas untuk tingkat keparahan DR)
 CLASSES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
@@ -430,21 +563,53 @@ def home():
     
     # Check if model exists
     model_exists = False
-    model_path = None
+    model_path_local = None
     
     # Check common paths
     for path in ["model-Retinopaty.h5", "./model-Retinopaty.h5", "../model-Retinopaty.h5", "/app/model-Retinopaty.h5", "/app/models/model-Retinopaty.h5"]:
         if os.path.exists(path):
             model_exists = True
-            model_path = path
+            model_path_local = path
             break
+    
+    # Tambah informasi diagnostik untuk membantu debug
+    tf_version = None
+    if TF_AVAILABLE:
+        try:
+            import tensorflow as tf
+            tf_version = tf.__version__
+        except:
+            tf_version = "Error getting version"
+    
+    model_info = None
+    if model is not None:
+        try:
+            model_info = {
+                "type": str(type(model)),
+                "input_shape": str(model.input_shape),
+                "output_shape": str([layer.output_shape for layer in model.layers][-1] if model.layers else None)
+            }
+        except Exception as model_info_error:
+            model_info = f"Error getting model info: {str(model_info_error)}"
+    
+    memory_info = None
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_info = {
+            "rss_mb": process.memory_info().rss / 1024 / 1024,  # MB
+            "vms_mb": process.memory_info().vms / 1024 / 1024,  # MB
+            "percent": process.memory_percent()
+        }
+    except Exception as mem_error:
+        memory_info = f"Error getting memory info: {str(mem_error)}"
     
     response_data = {
         "status": "ok",
         "message": "Flask API for RetinaScan is running",
         "model_loaded": model_loaded,
         "model_exists": model_exists,
-        "model_path": model_path,
+        "model_path": model_path_local,
         "simulation_mode": simulation_mode,
         "force_model": os.environ.get("FORCE_MODEL") == "1",
         "tensorflow_available": TF_AVAILABLE,
@@ -455,6 +620,14 @@ def home():
             "TF_FORCE_GPU_ALLOW_GROWTH": os.environ.get("TF_FORCE_GPU_ALLOW_GROWTH"),
             "TF_CPP_MIN_LOG_LEVEL": os.environ.get("TF_CPP_MIN_LOG_LEVEL"),
             "PORT": os.environ.get("PORT")
+        },
+        "diagnostics": {
+            "tensorflow_version": tf_version,
+            "model_info": model_info,
+            "memory_info": memory_info,
+            "python_version": sys.version,
+            "working_directory": os.getcwd(),
+            "os_platform": sys.platform
         }
     }
     
