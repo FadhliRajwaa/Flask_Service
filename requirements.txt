@@ -1,6 +1,10 @@
 flask==2.2.3
 flask-cors==3.0.10
-tensorflow==2.9.0
+# Pilih salah satu opsi TensorFlow di bawah ini (hapus komentar untuk mengaktifkan)
+tensorflow-cpu==2.12.0  # Opsi 1: Versi CPU saja (lebih ringan)
+# tensorflow-lite==2.12.0  # Opsi 2: TensorFlow Lite (sangat ringan, tapi perlu konversi model)
+# tensorflow-macos==2.12.0  # Opsi 3: Untuk Mac dengan Apple Silicon
+# tensorflow-aarch64==2.12.0  # Opsi 4: Untuk ARM64 (seperti Raspberry Pi)
 numpy>=1.23.5
 Pillow==9.5.0
 gunicorn==20.1.0

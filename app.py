@@ -1,19 +1,27 @@
 from flask import Flask, request, jsonify
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
-from PIL import Image
 import io
 import os
 import sys
 import time
 import psutil
 from flask_cors import CORS
+from PIL import Image
 
-# Konfigurasi logging untuk TensorFlow
-tf.get_logger().setLevel('INFO')
-print(f"TensorFlow version: {tf.__version__}")
+# Coba import TensorFlow, dengan fallback jika tidak tersedia
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import load_model
+    from tensorflow.keras.preprocessing import image
+    
+    # Konfigurasi logging untuk TensorFlow
+    tf.get_logger().setLevel('INFO')
+    print(f"TensorFlow version: {tf.__version__}")
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    print("TensorFlow tidak tersedia. Berjalan dalam mode simulasi.")
+    tf = None
+    TENSORFLOW_AVAILABLE = False
 
 app = Flask(__name__)
 CORS(app)
@@ -28,23 +36,29 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(current_dir, 'model-Retinopati.h5')
 
 # Pesan info awal
-print(f"Flask API untuk RetinaScan (TensorFlow {tf.__version__})")
-print(f"Mencari model di: {MODEL_PATH}")
+if TENSORFLOW_AVAILABLE:
+    print(f"Flask API untuk RetinaScan (TensorFlow {tf.__version__})")
+    print(f"Mencari model di: {MODEL_PATH}")
 
-# Pastikan model dapat dimuat
-try:
-    if not os.path.exists(MODEL_PATH):
-        print(f"File model tidak ditemukan di: {MODEL_PATH}")
+    # Pastikan model dapat dimuat
+    try:
+        if not os.path.exists(MODEL_PATH):
+            print(f"File model tidak ditemukan di: {MODEL_PATH}")
+            model = None
+        else:
+            model = load_model(MODEL_PATH)
+            model.summary()  # Menampilkan ringkasan model
+            print("Model berhasil dimuat!")
+    except Exception as e:
+        print(f"Gagal memuat model: {e}")
+        print("Menggunakan mode simulasi...")
+        # Tetap jalankan aplikasi dalam mode simulasi
         model = None
-    else:
-        model = load_model(MODEL_PATH)
-        model.summary()  # Menampilkan ringkasan model
-        print("Model berhasil dimuat!")
-except Exception as e:
-    print(f"Gagal memuat model: {e}")
-    print("Menggunakan mode simulasi...")
-    # Tetap jalankan aplikasi dalam mode simulasi
+else:
+    print("TensorFlow tidak tersedia. Berjalan dalam mode simulasi.")
     model = None
+    print(f"Mencari model di: {MODEL_PATH}")
+    print(f"File model {'ada' if os.path.exists(MODEL_PATH) else 'tidak ada'}")
 
 # Kelas output model (disesuaikan dengan model yang memiliki 5 kelas untuk tingkat keparahan DR)
 CLASSES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
@@ -170,7 +184,8 @@ def health_check():
                 'last_request_time': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime()) if total_requests > 0 else None
             },
             'environment': {
-                'tensorflow_version': tf.__version__,
+                'tensorflow_version': tf.__version__ if TENSORFLOW_AVAILABLE else 'not available',
+                'tensorflow_available': TENSORFLOW_AVAILABLE,
                 'python_version': sys.version,
                 'flask_env': os.environ.get('FLASK_ENV', 'production'),
                 'port': os.environ.get('PORT', '5001'),
@@ -423,7 +438,8 @@ def model_info():
             'classes': CLASSES,
             'severity_mapping': SEVERITY_MAPPING,
             'severity_level_mapping': SEVERITY_LEVEL_MAPPING,
-            'tf_version': tf.__version__,
+            'tf_version': tf.__version__ if TENSORFLOW_AVAILABLE else 'not available',
+            'tensorflow_available': TENSORFLOW_AVAILABLE,
             'simulation_mode': model is None,
             'model_path': MODEL_PATH,
             'model_exists': os.path.exists(MODEL_PATH),
