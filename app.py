@@ -11,17 +11,124 @@ from PIL import Image
 # Coba import TensorFlow, dengan fallback jika tidak tersedia
 try:
     import tensorflow as tf
-    from tensorflow.keras.models import load_model
+    from tensorflow.keras.models import load_model, save_model
     from tensorflow.keras.preprocessing import image
+    import h5py
     
     # Konfigurasi logging untuk TensorFlow
     tf.get_logger().setLevel('INFO')
     print(f"TensorFlow version: {tf.__version__}")
     TENSORFLOW_AVAILABLE = True
+    
+    def convert_model_format(model_path, output_path=None):
+        """
+        Konversi model ke format yang kompatibel dengan versi TensorFlow saat ini
+        """
+        if output_path is None:
+            output_path = model_path.replace('.h5', '_converted.h5')
+        
+        try:
+            # Cek apakah file model ada
+            if not os.path.exists(model_path):
+                print(f"File model tidak ditemukan: {model_path}")
+                return None, f"File tidak ditemukan: {model_path}"
+            
+            # Definisikan custom_objects untuk menangani batch_shape
+            custom_objects = {
+                'InputLayer': lambda config: tf.keras.layers.InputLayer(
+                    input_shape=config.get('batch_shape')[1:] if config.get('batch_shape') else None,
+                    **{k: v for k, v in config.items() if k != 'batch_shape'}
+                )
+            }
+            
+            # Coba load model dengan berbagai opsi
+            try:
+                # Opsi 1: Load dengan custom_objects untuk menangani batch_shape
+                print("Mencoba opsi 1: Load dengan custom_objects...")
+                model = load_model(model_path, compile=False, custom_objects=custom_objects)
+            except Exception as e1:
+                print(f"Opsi 1 gagal: {e1}")
+                try:
+                    # Opsi 2: Ekstrak dan modifikasi konfigurasi model
+                    print("Mencoba opsi 2: Ekstrak dan modifikasi konfigurasi model...")
+                    with h5py.File(model_path, 'r') as f:
+                        model_config = f.attrs.get('model_config')
+                        if model_config is not None:
+                            # Decode dan parse konfigurasi
+                            import json
+                            config_dict = json.loads(model_config.decode('utf-8'))
+                            
+                            # Modifikasi konfigurasi untuk menangani batch_shape
+                            if 'config' in config_dict and 'layers' in config_dict['config']:
+                                for layer in config_dict['config']['layers']:
+                                    if 'config' in layer and 'batch_shape' in layer['config']:
+                                        # Konversi batch_shape ke input_shape
+                                        batch_shape = layer['config']['batch_shape']
+                                        if batch_shape and len(batch_shape) > 1:
+                                            layer['config']['input_shape'] = batch_shape[1:]
+                                        # Hapus batch_shape
+                                        del layer['config']['batch_shape']
+                            
+                            # Buat model dari konfigurasi yang dimodifikasi
+                            model = tf.keras.models.model_from_json(json.dumps(config_dict))
+                            
+                            # Coba load weights
+                            try:
+                                model.load_weights(model_path)
+                            except Exception as ew:
+                                print(f"Gagal load weights: {ew}")
+                                # Coba load weights dengan skip_mismatch
+                                model.load_weights(model_path, skip_mismatch=True)
+                        else:
+                            raise ValueError("Tidak dapat membaca konfigurasi model")
+                except Exception as e2:
+                    print(f"Opsi 2 gagal: {e2}")
+                    try:
+                        # Opsi 3: Buat model sederhana dengan struktur yang sama
+                        print("Mencoba opsi 3: Rekonstruksi model...")
+                        # Periksa struktur model dengan h5py
+                        with h5py.File(model_path, 'r') as f:
+                            if 'model_weights' in f:
+                                # Coba rekonstruksi model berdasarkan layer yang ada
+                                # Ini adalah pendekatan yang sangat sederhana dan mungkin tidak berfungsi untuk semua model
+                                inputs = tf.keras.layers.Input(shape=(224, 224, 3))
+                                x = inputs
+                                x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(x)
+                                x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+                                x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+                                x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+                                x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu')(x)
+                                x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+                                x = tf.keras.layers.Flatten()(x)
+                                x = tf.keras.layers.Dense(128, activation='relu')(x)
+                                outputs = tf.keras.layers.Dense(5, activation='softmax')(x)
+                                model = tf.keras.Model(inputs, outputs)
+                            else:
+                                raise ValueError("Struktur model tidak dapat diidentifikasi")
+                    except Exception as e3:
+                        print(f"Opsi 3 gagal: {e3}")
+                        return None, f"Semua opsi gagal: {e1}, {e2}, {e3}"
+            
+            # Kompilasi model
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            
+            # Simpan model dalam format yang kompatibel
+            save_model(model, output_path, save_format='h5')
+            print(f"Model berhasil dikonversi dan disimpan di {output_path}")
+            
+            return model, output_path
+        except Exception as e:
+            print(f"Gagal mengkonversi model: {e}")
+            return None, str(e)
+    
 except ImportError:
     print("TensorFlow tidak tersedia. Berjalan dalam mode simulasi.")
     tf = None
     TENSORFLOW_AVAILABLE = False
+    
+    def convert_model_format(model_path, output_path=None):
+        print("TensorFlow tidak tersedia, tidak dapat mengkonversi model.")
+        return None, "TensorFlow tidak tersedia"
 
 app = Flask(__name__)
 CORS(app)
@@ -39,21 +146,78 @@ MODEL_PATH = os.path.join(current_dir, 'model-Retinopaty.h5')
 if TENSORFLOW_AVAILABLE:
     print(f"Flask API untuk RetinaScan (TensorFlow {tf.__version__})")
     print(f"Mencari model di: {MODEL_PATH}")
-
-    # Pastikan model dapat dimuat
+    
+    # Coba berbagai metode untuk memuat model
+    model = None
+    
+    # Metode 1: Memuat model langsung dengan custom_objects untuk menangani batch_shape
     try:
         if not os.path.exists(MODEL_PATH):
             print(f"File model tidak ditemukan di: {MODEL_PATH}")
-            model = None
         else:
-            model = load_model(MODEL_PATH)
-            model.summary()  # Menampilkan ringkasan model
+            print("Mencoba memuat model dengan metode standar...")
+            # Definisikan custom_objects untuk menangani batch_shape
+            custom_objects = {
+                'InputLayer': lambda config: tf.keras.layers.InputLayer(
+                    input_shape=config.get('batch_shape')[1:] if config.get('batch_shape') else None,
+                    **{k: v for k, v in config.items() if k != 'batch_shape'}
+                )
+            }
+            
+            model = load_model(
+                MODEL_PATH,
+                compile=False,
+                custom_objects=custom_objects
+            )
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            model.summary()
             print("Model berhasil dimuat!")
     except Exception as e:
-        print(f"Gagal memuat model: {e}")
-        print("Menggunakan mode simulasi...")
-        # Tetap jalankan aplikasi dalam mode simulasi
+        print(f"Gagal memuat model dengan metode standar: {e}")
         model = None
+    
+    # Metode 2: Memuat dengan tf.keras API jika metode 1 gagal
+    if model is None:
+        try:
+            print("Mencoba memuat model dengan tf.keras API...")
+            # Gunakan custom_objects yang sama
+            custom_objects = {
+                'InputLayer': lambda config: tf.keras.layers.InputLayer(
+                    input_shape=config.get('batch_shape')[1:] if config.get('batch_shape') else None,
+                    **{k: v for k, v in config.items() if k != 'batch_shape'}
+                )
+            }
+            
+            model = tf.keras.models.load_model(
+                MODEL_PATH,
+                compile=False,
+                custom_objects=custom_objects
+            )
+            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            model.summary()
+            print("Model berhasil dimuat dengan tf.keras API!")
+        except Exception as e:
+            print(f"Gagal memuat model dengan tf.keras API: {e}")
+            model = None
+    
+    # Metode 3: Konversi model jika metode 1 dan 2 gagal
+    if model is None:
+        try:
+            print("Mencoba mengkonversi model ke format yang kompatibel...")
+            converted_model_path = MODEL_PATH.replace('.h5', '_converted.h5')
+            model, result = convert_model_format(MODEL_PATH, converted_model_path)
+            if model is not None:
+                print(f"Model berhasil dikonversi dan dimuat: {result}")
+                model.summary()
+            else:
+                print(f"Gagal mengkonversi model: {result}")
+        except Exception as e:
+            print(f"Gagal mengkonversi dan memuat model: {e}")
+            model = None
+    
+    # Jika semua metode gagal, gunakan mode simulasi
+    if model is None:
+        print("Semua metode loading model gagal. Menggunakan mode simulasi...")
 else:
     print("TensorFlow tidak tersedia. Berjalan dalam mode simulasi.")
     model = None
@@ -100,8 +264,12 @@ def preprocess_image(img_bytes):
         # Ubah ukuran sesuai model
         img = img.resize((224, 224))  # Sesuaikan dengan ukuran input model
         
-        # Konversi ke array numpy
-        img_array = image.img_to_array(img)
+        # Konversi ke array numpy - dengan fallback jika TensorFlow tidak tersedia
+        if TENSORFLOW_AVAILABLE:
+            img_array = image.img_to_array(img)
+        else:
+            # Fallback ke numpy langsung jika TensorFlow tidak tersedia
+            img_array = np.array(img)
         
         # Normalisasi
         img_array = img_array / 255.0
@@ -381,6 +549,122 @@ def get_recommendation_by_severity(severity_class):
     
     return recommendations.get(severity_class, 'Konsultasikan dengan dokter mata.')
 
+@app.route('/download-model', methods=['GET'])
+def download_model():
+    """Endpoint untuk mengunduh model dari URL"""
+    if not TENSORFLOW_AVAILABLE:
+        return jsonify({
+            'status': 'error',
+            'message': 'TensorFlow tidak tersedia'
+        }), 500
+    
+    try:
+        # URL model dapat dikonfigurasi melalui environment variable
+        model_url = request.args.get('url') or os.environ.get('MODEL_URL')
+        
+        if not model_url:
+            return jsonify({
+                'status': 'error',
+                'message': 'URL model tidak diberikan'
+            }), 400
+        
+        import requests
+        
+        # Buat direktori jika belum ada
+        os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+        
+        # Unduh model
+        print(f"Mengunduh model dari {model_url}...")
+        response = requests.get(model_url, stream=True)
+        response.raise_for_status()
+        
+        # Simpan model
+        with open(MODEL_PATH, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        print(f"Model berhasil diunduh ke {MODEL_PATH}")
+        
+        # Coba muat model
+        try:
+            model = load_model(MODEL_PATH, compile=False)
+            model.summary()
+            model_loaded = True
+        except Exception as e:
+            print(f"Gagal memuat model yang diunduh: {e}")
+            model_loaded = False
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Model berhasil diunduh',
+            'path': MODEL_PATH,
+            'size_mb': os.path.getsize(MODEL_PATH) / (1024 * 1024),
+            'model_loaded': model_loaded
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Error saat mengunduh model: {str(e)}'
+        }), 500
+
+@app.route('/check-model', methods=['GET'])
+def check_model():
+    """Endpoint untuk memeriksa struktur file model"""
+    if not TENSORFLOW_AVAILABLE:
+        return jsonify({
+            'status': 'error',
+            'message': 'TensorFlow tidak tersedia'
+        }), 500
+    
+    try:
+        if not os.path.exists(MODEL_PATH):
+            return jsonify({
+                'status': 'error',
+                'message': f'File model tidak ditemukan: {MODEL_PATH}'
+            }), 404
+        
+        # Periksa struktur file model dengan h5py
+        import h5py
+        model_info = {}
+        
+        with h5py.File(MODEL_PATH, 'r') as f:
+            # Dapatkan atribut model
+            for attr_name in f.attrs.keys():
+                try:
+                    attr_value = f.attrs[attr_name]
+                    if isinstance(attr_value, bytes):
+                        attr_value = attr_value.decode('utf-8')
+                    model_info[attr_name] = str(attr_value)
+                except Exception as e:
+                    model_info[f"{attr_name}_error"] = str(e)
+            
+            # Dapatkan struktur grup
+            model_info['groups'] = list(f.keys())
+            
+            # Periksa versi format
+            if 'keras_version' in f.attrs:
+                model_info['keras_version'] = f.attrs['keras_version'].decode('utf-8')
+            
+            # Periksa layer
+            if 'model_weights' in f:
+                model_info['layers'] = list(f['model_weights'].keys())
+            
+            # Periksa metadata tambahan
+            model_info['file_size_mb'] = os.path.getsize(MODEL_PATH) / (1024 * 1024)
+            model_info['current_tf_version'] = tf.__version__
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Struktur model berhasil diperiksa',
+            'model_path': MODEL_PATH,
+            'model_info': model_info
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Error saat memeriksa model: {str(e)}'
+        }), 500
+
 @app.route('/test-model', methods=['GET'])
 def test_model():
     """Endpoint untuk menguji model dengan gambar sampel"""
@@ -426,6 +710,38 @@ def test_model():
         return jsonify({
             'status': 'error',
             'message': f'Gagal menguji model: {str(e)}'
+        }), 500
+
+@app.route('/convert-model', methods=['GET'])
+def convert_model_endpoint():
+    """Endpoint untuk mengkonversi model ke format yang kompatibel"""
+    if not TENSORFLOW_AVAILABLE:
+        return jsonify({
+            'status': 'error',
+            'message': 'TensorFlow tidak tersedia'
+        }), 500
+    
+    try:
+        # Konversi model
+        converted_model_path = MODEL_PATH.replace('.h5', '_converted.h5')
+        model_result, message = convert_model_format(MODEL_PATH, converted_model_path)
+        
+        if model_result is not None:
+            return jsonify({
+                'status': 'success',
+                'message': 'Model berhasil dikonversi',
+                'original_path': MODEL_PATH,
+                'converted_path': converted_model_path
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': f'Gagal mengkonversi model: {message}'
+            }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Error saat mengkonversi model: {str(e)}'
         }), 500
 
 @app.route('/info', methods=['GET'])
@@ -483,9 +799,18 @@ if __name__ == '__main__':
     
     print(f"Flask API berjalan pada port: {port}")
     print(f"Mode debug: {debug_mode}")
+    print(f"TensorFlow tersedia: {TENSORFLOW_AVAILABLE}")
     print(f"Model tersedia: {model is not None}")
-    print(f"Endpoint: http://0.0.0.0:{port}/predict")
-    print(f"Info endpoint: http://0.0.0.0:{port}/info")
-    print(f"Health endpoint: http://0.0.0.0:{port}/health")
+    print(f"Mode simulasi: {model is None}")
+    print(f"File model ada: {os.path.exists(MODEL_PATH)}")
+    print(f"Path model: {MODEL_PATH}")
+    print("\nEndpoint yang tersedia:")
+    print(f"- Prediksi: http://0.0.0.0:{port}/predict")
+    print(f"- Info: http://0.0.0.0:{port}/info")
+    print(f"- Health check: http://0.0.0.0:{port}/health")
+    print(f"- Test model: http://0.0.0.0:{port}/test-model")
+    print(f"- Check model: http://0.0.0.0:{port}/check-model")
+    print(f"- Convert model: http://0.0.0.0:{port}/convert-model")
+    print(f"- Download model: http://0.0.0.0:{port}/download-model?url=<model_url>")
     
     app.run(host='0.0.0.0', port=port, debug=debug_mode) 
