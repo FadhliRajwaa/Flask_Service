@@ -8,6 +8,7 @@ from PIL import Image
 import io
 import base64
 import logging
+import sys
 
 # Konfigurasi logging
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +24,7 @@ model = None
 def load_keras_model():
     global model
     try:
+        logger.info(f"Python version: {sys.version}")
         logger.info(f"Mencoba memuat model dari: {MODEL_PATH}")
         logger.info(f"Menggunakan TensorFlow versi: {tf_version}")
         logger.info(f"Menggunakan NumPy versi: {np.__version__}")
@@ -31,24 +33,26 @@ def load_keras_model():
             logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
             logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
             
-            # Gunakan tf.keras.models.load_model untuk TF 2.12.0
-            model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-            logger.info("Model berhasil dimuat!")
+            # Custom objects untuk menangani layer khusus
+            custom_objects = {}
+            
+            # Tidak menggunakan parameter compile untuk menghindari masalah
+            model = tf.keras.models.load_model(
+                MODEL_PATH,
+                custom_objects=custom_objects,
+                compile=False
+            )
+            
+            logger.info(f"Model berhasil dimuat dengan struktur: {model.summary()}")
             return True
         else:
             logger.error(f"File model tidak ditemukan di {MODEL_PATH}")
             return False
     except Exception as e:
         logger.error(f"Error saat memuat model: {str(e)}")
-        # Coba alternative loading method
-        try:
-            logger.info("Mencoba metode alternatif untuk memuat model...")
-            model = tf.saved_model.load(MODEL_PATH)
-            logger.info("Model berhasil dimuat dengan metode alternatif!")
-            return True
-        except Exception as e2:
-            logger.error(f"Metode alternatif juga gagal: {str(e2)}")
-            return False
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error args: {e.args}")
+        return False
 
 # Fungsi untuk preprocessing gambar
 def preprocess_image(img_data):
@@ -59,12 +63,14 @@ def preprocess_image(img_data):
         
         # Resize image sesuai dengan input model (misalnya 224x224)
         img = img.resize((224, 224))
+        logger.info(f"Image resized to: {img.size}")
         
         # Convert ke array dan normalisasi
         img_array = np.array(img, dtype=np.float32)
         img_array = np.expand_dims(img_array, axis=0)
         img_array = img_array / 255.0  # Normalisasi
         
+        logger.info(f"Preprocessed image shape: {img_array.shape}")
         return img_array
     except Exception as e:
         logger.error(f"Error saat preprocessing gambar: {str(e)}")
@@ -75,6 +81,7 @@ def preprocess_image(img_data):
 def index():
     global model
     model_status = "belum dimuat"
+    
     try:
         if model is None:
             # Coba muat model jika belum dimuat
@@ -96,7 +103,8 @@ def index():
             'size_mb': round(file_size, 2)
         },
         'tensorflow_version': tf_version,
-        'numpy_version': np.__version__
+        'numpy_version': np.__version__,
+        'python_version': sys.version
     })
 
 # Route untuk prediksi - endpoint utama yang akan diakses dari Node.js
@@ -127,35 +135,41 @@ def predict():
                 'message': 'Gagal memproses gambar'
             }), 400
         
-        # Prediksi
+        # Prediksi dengan wrapped dalam try-except
         try:
-            # Mencoba metode predict standard
-            prediction = model.predict(processed_image)
-        except Exception as e:
-            logger.error(f"Error dengan model.predict: {str(e)}")
-            # Alternative prediction method for SavedModel
-            prediction = model(processed_image)
-            if isinstance(prediction, dict):
-                prediction = prediction['output']
+            # Convert image untuk compatibility jika perlu
+            if processed_image.shape[-1] == 4:  # RGBA
+                logger.info("Converting RGBA to RGB")
+                processed_image = processed_image[:, :, :, :3]  # Ambil hanya RGB
             
-        # Interpretasi hasil (sesuaikan dengan kelas model Anda)
-        class_names = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
-        predicted_class = np.argmax(prediction[0])
-        confidence = float(prediction[0][predicted_class])
-        
-        return jsonify({
-            'status': 'success',
-            'prediction': {
-                'class': class_names[predicted_class],
-                'class_id': int(predicted_class),
-                'confidence': confidence
-            }
-        })
+            logger.info(f"Running prediction with image shape: {processed_image.shape}")
+            prediction = model.predict(processed_image)
+            logger.info(f"Prediction result shape: {prediction.shape}")
+            
+            # Interpretasi hasil (sesuaikan dengan kelas model Anda)
+            class_names = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
+            predicted_class = np.argmax(prediction[0])
+            confidence = float(prediction[0][predicted_class])
+            
+            return jsonify({
+                'status': 'success',
+                'prediction': {
+                    'class': class_names[predicted_class],
+                    'class_id': int(predicted_class),
+                    'confidence': confidence
+                }
+            })
+        except Exception as pred_error:
+            logger.error(f"Error during prediction: {str(pred_error)}")
+            return jsonify({
+                'status': 'error',
+                'message': f'Error saat melakukan prediksi: {str(pred_error)}'
+            }), 500
     except Exception as e:
-        logger.error(f"Error saat melakukan prediksi: {str(e)}")
+        logger.error(f"Error saat memproses request: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': f'Error saat melakukan prediksi: {str(e)}'
+            'message': f'Error saat memproses request: {str(e)}'
         }), 500
 
 if __name__ == '__main__':
