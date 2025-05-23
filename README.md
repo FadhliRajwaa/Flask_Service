@@ -1,6 +1,6 @@
 # API Retinopati Diabetik
 
-API Flask untuk klasifikasi Retinopati Diabetik menggunakan model deep learning.
+API Flask untuk klasifikasi Retinopati Diabetik menggunakan model deep learning TensorFlow 2.19.0.
 
 ## Struktur Folder
 
@@ -65,66 +65,16 @@ python app.py
    - **Name**: retinopathy-api
    - **Environment**: Python
    - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn app:app`
+   - **Start Command**: `gunicorn app:app --timeout 180 --workers 1`
    - **Plan**: Free (atau sesuai kebutuhan)
    - **Advanced**:
      - Add Environment Variable: `TF_CPP_MIN_LOG_LEVEL` = `2`
      - Add Environment Variable: `PYTHON_VERSION` = `3.9.16`
 5. Klik "Create Web Service"
 
-## Integrasi dengan Node.js Backend
-
-Untuk mengintegrasikan API Flask ini dengan backend Node.js, Anda dapat menggunakan fetch atau axios untuk memanggil endpoint API:
-
-```javascript
-// Contoh menggunakan axios di Node.js
-const axios = require('axios');
-const fs = require('fs');
-
-// Fungsi untuk mengkonversi gambar ke base64
-function imageToBase64(imagePath) {
-  const image = fs.readFileSync(imagePath);
-  return Buffer.from(image).toString('base64');
-}
-
-// Endpoint Flask
-const FLASK_API_URL = process.env.FLASK_API_URL || 'http://localhost:5000';
-
-// Contoh fungsi untuk prediksi retinopati
-async function predictRetinopathy(imagePath) {
-  try {
-    const imageBase64 = imageToBase64(imagePath);
-    
-    const response = await axios.post(`${FLASK_API_URL}/predict`, {
-      image: imageBase64
-    });
-    
-    return response.data;
-  } catch (error) {
-    console.error('Error saat melakukan prediksi:', error.message);
-    throw error;
-  }
-}
-
-// Contoh penggunaan dalam Express route
-app.post('/api/predict-retinopathy', async (req, res) => {
-  try {
-    const imagePath = req.file.path; // Jika menggunakan multer untuk upload
-    const result = await predictRetinopathy(imagePath);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: error.message
-    });
-  }
-});
-```
-
 ## Catatan Penting
 
 - Model membutuhkan gambar fundus mata yang diproses dengan ukuran 224x224 pixel
 - Gambar harus dikirim dalam format base64
 - Kelas output: ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
-- API menggunakan CORS sehingga bisa diakses dari domain yang berbeda
-- Pastikan untuk mengonfigurasi FLASK_API_URL di Node.js ke URL deployment Render Anda 
+- API menggunakan TensorFlow 2.19.0 dan NumPy 1.26.0+ 

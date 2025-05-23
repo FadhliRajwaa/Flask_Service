@@ -4,7 +4,7 @@ services:
     name: retinopathy-api
     env: python
     plan: free
-    buildCommand: ./build.sh
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --timeout 180 --workers 1
     autoDeploy: true
     # Konfigurasi untuk model berukuran besar

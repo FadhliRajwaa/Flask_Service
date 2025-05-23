@@ -32,8 +32,8 @@ def load_keras_model():
             logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
             logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
             
-            # TF 2.10 compatible loading
-            model = load_model(MODEL_PATH)
+            # TF 2.19.0 compatible loading - gunakan compile=False untuk menghindari warning
+            model = load_model(MODEL_PATH, compile=False)
             logger.info("Model berhasil dimuat!")
             return True
         else:
