@@ -8,6 +8,8 @@ services:
     envVars:
       - key: SIMULATION_MODE
         value: "0"
+      - key: FORCE_MODEL
+        value: "1"
       - key: TF_FORCE_GPU_ALLOW_GROWTH
         value: "true"
       - key: TF_CPP_MIN_LOG_LEVEL
