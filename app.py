@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing import image
+from tensorflow import __version__ as tf_version
 from PIL import Image
 import io
 import base64
@@ -24,12 +25,14 @@ def load_keras_model():
     global model
     try:
         logger.info(f"Mencoba memuat model dari: {MODEL_PATH}")
+        logger.info(f"Menggunakan TensorFlow versi: {tf_version}")
         
         if os.path.exists(MODEL_PATH):
             logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
             logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
             
-            model = load_model(MODEL_PATH)
+            # Untuk TF 2.13+ gunakan compile=False untuk menghindari warnings
+            model = load_model(MODEL_PATH, compile=False)
             logger.info("Model berhasil dimuat!")
             return True
         else:
@@ -62,6 +65,11 @@ def preprocess_image(img_data):
 # Route untuk health check - untuk integrasi dengan Node.js
 @app.route('/', methods=['GET'])
 def index():
+    global model
+    if model is None:
+        # Coba muat model jika belum dimuat
+        load_keras_model()
+        
     model_status = "dimuat" if model is not None else "belum dimuat"
     file_exists = os.path.exists(MODEL_PATH)
     file_size = os.path.getsize(MODEL_PATH) / (1024 * 1024) if file_exists else 0
@@ -73,12 +81,14 @@ def index():
             'exists': file_exists,
             'path': MODEL_PATH,
             'size_mb': round(file_size, 2)
-        }
+        },
+        'tensorflow_version': tf_version
     })
 
 # Route untuk prediksi - endpoint utama yang akan diakses dari Node.js
 @app.route('/predict', methods=['POST'])
 def predict():
+    global model
     if model is None:
         # Coba muat model jika belum dimuat
         if not load_keras_model():
@@ -126,10 +136,8 @@ def predict():
             'message': f'Error saat melakukan prediksi: {str(e)}'
         }), 500
 
-# Inisialisasi model saat aplikasi dijalankan
-@app.before_first_request
-def initialize():
-    global model
+# Inisialisasi model
+with app.app_context():
     if model is None:
         load_keras_model()
 
