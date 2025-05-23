@@ -6,9 +6,12 @@ from PIL import Image
 import numpy as np
 import io
 import tensorflow as tf
+import os
+import platform
+import sys
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['*'])
 
 # Load trained model
 model = load_model("model-Retinopaty.h5")
@@ -71,6 +74,29 @@ def predict():
         "severity_level": SEVERITY_LEVEL_MAPPING[class_name],
         "severity_description": SEVERITY_MAPPING[class_name],
         "recommendation": RECOMMENDATIONS[class_name]
+    })
+
+@app.route("/info", methods=["GET"])
+def info():
+    """Endpoint untuk mendapatkan informasi tentang model dan API."""
+    return jsonify({
+        "model_name": "model-Retinopaty.h5",
+        "classes": CLASSES,
+        "severity_mapping": SEVERITY_MAPPING,
+        "severity_level_mapping": SEVERITY_LEVEL_MAPPING,
+        "simulation_mode": os.environ.get("SIMULATION_MODE") == "1",
+        "api_version": "1.0.0",
+        "tf_version": tf.__version__,
+        "platform": platform.platform(),
+        "python_version": sys.version
+    })
+
+@app.route("/", methods=["GET"])
+def home():
+    """Root endpoint untuk health check."""
+    return jsonify({
+        "status": "ok",
+        "message": "Flask API for RetinaScan is running"
     })
 
 if __name__ == "__main__":
