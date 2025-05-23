@@ -1,14 +1,11 @@
 flask==2.2.3
 flask-cors==3.0.10
-# TensorFlow CPU - lebih ringan untuk deployment
+# TensorFlow CPU khusus untuk deployment di lingkungan terbatas
 tensorflow-cpu==2.12.0
-h5py>=3.7.0  # Diperlukan untuk manipulasi file model H5
+h5py>=3.7.0
 numpy>=1.23.5
 Pillow==9.5.0
 gunicorn==20.1.0
 werkzeug==2.2.3
 psutil==5.9.5
-requests==2.28.2
-# Dependensi tambahan untuk debugging dan konversi model
-pyyaml>=6.0  # Untuk parsing konfigurasi model
-protobuf>=3.20.0  # Diperlukan oleh TensorFlow
+# Mengurangi dependencies untuk menghemat memori
