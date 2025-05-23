@@ -26,13 +26,14 @@ def load_keras_model():
     try:
         logger.info(f"Mencoba memuat model dari: {MODEL_PATH}")
         logger.info(f"Menggunakan TensorFlow versi: {tf_version}")
+        logger.info(f"Menggunakan NumPy versi: {np.__version__}")
         
         if os.path.exists(MODEL_PATH):
             logger.info(f"File exist: {os.path.exists(MODEL_PATH)}")
             logger.info(f"File size: {os.path.getsize(MODEL_PATH) / (1024 * 1024):.2f} MB")
             
-            # Untuk TF 2.13+ gunakan compile=False untuk menghindari warnings
-            model = load_model(MODEL_PATH, compile=False)
+            # TensorFlow 2.12.0 masih bisa menggunakan parameter compile=True
+            model = load_model(MODEL_PATH)
             logger.info("Model berhasil dimuat!")
             return True
         else:
@@ -82,7 +83,8 @@ def index():
             'path': MODEL_PATH,
             'size_mb': round(file_size, 2)
         },
-        'tensorflow_version': tf_version
+        'tensorflow_version': tf_version,
+        'numpy_version': np.__version__
     })
 
 # Route untuk prediksi - endpoint utama yang akan diakses dari Node.js
