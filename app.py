@@ -56,7 +56,9 @@ model_paths = [
     "./model/model-Retinopaty.h5",
     # Tambahkan lokasi model di Streamlit Cloud
     "/mount/src/retinascan/model-Retinopaty.h5",
-    "/mount/src/retinascan/backend/flask_service/model-Retinopaty.h5"
+    "/mount/src/retinascan/backend/flask_service/model-Retinopaty.h5",
+    # Tambahkan lokasi model di Streamlit Share
+    "/mount/src/flask_service/model-Retinopaty.h5"
 ]
 
 # Fungsi untuk memuat model
