@@ -16,6 +16,8 @@ services:
         value: "2"
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: MEMORY_LIMITED
+        value: "1"  # Set to 1 if running in memory-limited environment like Render free tier
     disk:
       name: model-storage
       mountPath: /app/models

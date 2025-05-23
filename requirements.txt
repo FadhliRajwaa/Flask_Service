@@ -1,10 +1,9 @@
 flask==2.2.3
-flask==2.2.3
 flask-cors==3.0.10
-# TensorFlow untuk model prediction
-tensorflow-cpu==2.12.0
-h5py>=3.7.0
-numpy>=1.23.5
+# Menggunakan versi TensorFlow yang sudah terinstal
+tensorflow>=2.19.0
+h5py>=3.13.0
+numpy>=1.26.0
 Pillow==9.5.0
 gunicorn==20.1.0
 werkzeug==2.2.3
