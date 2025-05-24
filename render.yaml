@@ -5,7 +5,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --log-level info --timeout 300 --workers 1 --threads 2 --max-requests 2 --max-requests-jitter 1 --preload
+    startCommand: gunicorn app:app --log-level debug --timeout 300 --workers 1 --threads 2 --max-requests 2 --max-requests-jitter 1 --preload --access-logfile - --error-logfile -
     autoDeploy: true
     # Konfigurasi untuk model berukuran besar
     disk:
@@ -16,8 +16,10 @@ services:
       - key: PYTHON_VERSION
         value: 3.9.16
       - key: TF_CPP_MIN_LOG_LEVEL
-        value: 2
+        value: 1
       - key: TF_FORCE_GPU_ALLOW_GROWTH
+        value: true
+      - key: PYTHONUNBUFFERED
         value: true
       - key: PORT
         value: 10000
