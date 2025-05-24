@@ -152,7 +152,12 @@ def health_check():
     return jsonify({
         'status': 'online',
         'service': 'retinopathy-api',
-        'model_loaded': model is not None
+        'model_loaded': model is not None,
+        'model_name': 'Retinopathy Detection Model',
+        'classes': CLASS_NAMES,
+        'tf_version': tf.__version__,
+        'simulation_mode': False,
+        'api_version': '1.0.0'
     })
 
 if __name__ == '__main__':
