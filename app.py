@@ -34,10 +34,6 @@ if gpus:
 else:
     print("Tidak ada GPU yang terdeteksi")
 
-# Batasi penggunaan memori
-tf.config.experimental.set_memory_growth(tf.config.list_physical_devices('CPU')[0], True)
-print("Konfigurasi memori TensorFlow: dynamic memory growth diaktifkan")
-
 app = Flask(__name__)
 # Aktifkan CORS dengan konfigurasi yang lebih permisif
 CORS(app, 
