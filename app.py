@@ -9,6 +9,7 @@ import logging
 import sys
 import gc
 import tensorflow as tf
+from tensorflow.keras import layers
 
 # Konfigurasi logging dengan format yang lebih jelas untuk Render
 logging.basicConfig(
@@ -19,6 +20,18 @@ logger = logging.getLogger(__name__)
 
 # Log startup yang jelas
 logger.info("======= STARTING RETINOPATY-API SERVICE =======")
+logger.info(f"TensorFlow version: {tf.__version__}")
+
+# Custom layer untuk kompatibilitas dengan model yang dibuat di versi TensorFlow yang berbeda
+class CustomInputLayer(tf.keras.layers.Layer):
+    def __init__(self, batch_shape=None, **kwargs):
+        if batch_shape is not None:
+            input_shape = batch_shape[1:]
+            kwargs['input_shape'] = input_shape
+        super(CustomInputLayer, self).__init__(**kwargs)
+
+    def call(self, inputs):
+        return inputs
 
 # Load model
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model-Retinopaty.h5')
@@ -50,8 +63,11 @@ def load_model_from_file():
         # Import yang diperlukan
         from tensorflow.keras.models import load_model
         
-        # Coba dengan custom_objects kosong
-        custom_objects = {}
+        # Setup custom objects untuk kompatibilitas
+        custom_objects = {
+            'CustomInputLayer': CustomInputLayer,
+            'InputLayer': CustomInputLayer
+        }
         
         # Log status memori sebelum memuat model
         import psutil
@@ -59,21 +75,65 @@ def load_model_from_file():
         logger.info(f"Memory before loading: {memory_before.percent}% used")
         
         logger.info("Mulai memuat model...")
-        # Load model dengan explicit settings
-        model = load_model(
-            MODEL_PATH,
-            custom_objects=custom_objects,
-            compile=False
-        )
+        
+        # Coba dengan pendekatan multiple approach
+        try:
+            # Pendekatan 1: Menggunakan custom objects
+            logger.info("Pendekatan 1: Menggunakan custom objects...")
+            model = load_model(
+                MODEL_PATH,
+                custom_objects=custom_objects,
+                compile=False
+            )
+        except Exception as e1:
+            logger.warning(f"Pendekatan 1 gagal: {str(e1)}")
+            
+            # Jika gagal, coba pendekatan lain
+            try:
+                logger.info("Pendekatan 2: Menggunakan hanya model weights...")
+                
+                # Coba buat model dari scratch berdasarkan dimensi
+                input_shape = (224, 224, 3)  # Ukuran umum untuk model retinopati
+                
+                # Memuat model sebagai full model
+                model = tf.keras.models.load_model(MODEL_PATH, compile=False, safe_mode=False)
+                
+            except Exception as e2:
+                logger.warning(f"Pendekatan 2 gagal: {str(e2)}")
+                
+                try:
+                    logger.info("Pendekatan 3: Menggunakan TensorFlow SavedModel...")
+                    # Coba memuat sebagai SavedModel
+                    # Jika model dalam format H5 tetapi menggunakan fitur newer TensorFlow 
+                    # Simpan ulang model sementara sebagai SavedModel
+                    temp_saved_model_dir = os.path.join(os.path.dirname(MODEL_PATH), 'temp_model')
+                    if not os.path.exists(temp_saved_model_dir):
+                        os.makedirs(temp_saved_model_dir)
+                    
+                    # Jika gagal, coba konversi menggunakan tf.saved_model.load
+                    model = tf.saved_model.load(MODEL_PATH)
+                    
+                except Exception as e3:
+                    logger.error(f"Semua pendekatan gagal. Pendekatan 3 error: {str(e3)}")
+                    raise Exception(f"Tidak dapat memuat model dengan semua pendekatan. Versi TensorFlow mungkin terlalu berbeda. Model dibuat dengan TF 2.19.0, server menggunakan {tf.__version__}")
         
         # Log status memori setelah memuat model
         memory_after = psutil.virtual_memory()
         logger.info(f"Memory after loading: {memory_after.percent}% used")
         logger.info(f"Memory increase: {memory_after.percent - memory_before.percent}%")
         
-        logger.info(f"Model berhasil dimuat! Model shape: {model.input_shape}")
-        logger.info("=== LOADING MODEL SELESAI ===")
-        return True
+        if model is not None:
+            if hasattr(model, 'input_shape'):
+                logger.info(f"Model berhasil dimuat! Model shape: {model.input_shape}")
+            else:
+                logger.info("Model berhasil dimuat! (Tidak dapat menentukan shape)")
+            
+            logger.info("=== LOADING MODEL SELESAI ===")
+            return True
+        else:
+            logger.error("Model tidak berhasil dimuat, nilai model adalah None")
+            return False
+            
     except Exception as e:
         logger.error(f"Error saat memuat model: {str(e)}")
         logger.error("=== LOADING MODEL GAGAL ===")
@@ -123,13 +183,15 @@ def index():
         'exists': file_exists,
         'path': MODEL_PATH,
         'size_mb': round(file_size, 2),
-        'status': model_status
+        'status': model_status,
+        'tf_version': tf.__version__
     }
     
     # Tambahkan informasi input/output shape jika model sudah dimuat
-    if model is not None:
+    if model is not None and hasattr(model, 'input_shape'):
         model_info['input_shape'] = str(model.input_shape)
-        model_info['output_shape'] = str(model.output_shape)
+        if hasattr(model, 'output_shape'):
+            model_info['output_shape'] = str(model.output_shape)
     
     return jsonify({
         'status': 'success',
@@ -157,13 +219,18 @@ def test_load_model():
     success = load_model_from_file()
     
     if success:
+        model_info = {'success': True, 'message': 'Model berhasil dimuat'}
+        
+        # Tambahkan detail model jika tersedia
+        if hasattr(model, 'input_shape'):
+            model_info['input_shape'] = str(model.input_shape)
+        if hasattr(model, 'output_shape'):
+            model_info['output_shape'] = str(model.output_shape)
+            
         return jsonify({
             'status': 'success',
             'message': 'Model berhasil dimuat',
-            'model_info': {
-                'input_shape': str(model.input_shape),
-                'output_shape': str(model.output_shape)
-            }
+            'model_info': model_info
         })
     else:
         return jsonify({
@@ -212,37 +279,63 @@ def predict():
         
         # 3. Melakukan prediksi
         try:
-            # Memastikan tensor memiliki shape yang benar
-            input_shape = model.input_shape[1:]
-            
-            # Log untuk debugging
-            logger.info(f"Model input shape: {input_shape}")
-            logger.info(f"Processed image shape: {processed_image.shape}")
-            
-            # Pastikan gambar sesuai dengan input model
-            if processed_image.shape[1:] != input_shape:
-                processed_image = tf.image.resize(processed_image, (input_shape[0], input_shape[1]))
-                logger.info(f"Resized to match model input: {processed_image.shape}")
-            
-            # Prediksi
+            # Prediksi dengan handling untuk model yang berbeda
             logger.info("Mulai proses prediksi")
-            prediction = model.predict(processed_image)
+            
+            # Cek apakah model memiliki metode predict
+            if hasattr(model, 'predict'):
+                # Handle model dengan input_shape yang berbeda jika perlu
+                if hasattr(model, 'input_shape'):
+                    input_shape = model.input_shape[1:]
+                    logger.info(f"Model input shape: {input_shape}")
+                    logger.info(f"Processed image shape: {processed_image.shape}")
+                    
+                    # Pastikan gambar sesuai dengan input model
+                    if processed_image.shape[1:] != input_shape:
+                        processed_image = tf.image.resize(processed_image, (input_shape[0], input_shape[1]))
+                        logger.info(f"Resized to match model input: {processed_image.shape}")
+                
+                # Prediksi menggunakan metode predict
+                prediction = model.predict(processed_image)
+            else:
+                # Untuk model yang tidak memiliki metode predict
+                logger.info("Model tidak memiliki metode predict, mencoba alternatif")
+                # Gunakan panggilan model langsung sebagai fungsi
+                prediction = model(processed_image)
+                
+                # Konversi ke numpy array jika berupa tensor
+                if hasattr(prediction, 'numpy'):
+                    prediction = prediction.numpy()
+            
             logger.info("Prediksi selesai")
             
             # Interpretasi hasil
-            predicted_class = np.argmax(prediction[0])
-            confidence = float(prediction[0][predicted_class])
-            logger.info(f"Hasil prediksi: Class={CLASS_NAMES[predicted_class]}, Confidence={confidence:.4f}")
-            
-            # Respon dengan hasil prediksi
-            return jsonify({
-                'status': 'success',
-                'prediction': {
-                    'class': CLASS_NAMES[predicted_class],
-                    'class_id': int(predicted_class),
-                    'confidence': confidence
-                }
-            })
+            if isinstance(prediction, np.ndarray) and prediction.size > 0:
+                if len(prediction.shape) > 1:
+                    predicted_class = np.argmax(prediction[0])
+                    confidence = float(prediction[0][predicted_class])
+                else:
+                    predicted_class = np.argmax(prediction)
+                    confidence = float(prediction[predicted_class])
+                
+                logger.info(f"Hasil prediksi: Class={CLASS_NAMES[predicted_class]}, Confidence={confidence:.4f}")
+                
+                # Respon dengan hasil prediksi
+                return jsonify({
+                    'status': 'success',
+                    'prediction': {
+                        'class': CLASS_NAMES[predicted_class],
+                        'class_id': int(predicted_class),
+                        'confidence': confidence
+                    }
+                })
+            else:
+                logger.error("Format output prediksi tidak sesuai ekspektasi")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Format output prediksi tidak sesuai ekspektasi'
+                }), 500
+                
         except Exception as pred_error:
             logger.error(f"Error during prediction: {str(pred_error)}")
             return jsonify({
