@@ -20,9 +20,6 @@ logger = logging.getLogger(__name__)
 # Log startup yang jelas
 logger.info("======= STARTING RETINOPATY-API SERVICE =======")
 
-app = Flask(__name__)
-CORS(app)  # Ini penting untuk integrasi dengan Node.js (cross-origin requests)
-
 # Load model
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model-Retinopaty.h5')
 logger.info(f"Model path: {MODEL_PATH}")
@@ -33,7 +30,7 @@ if os.path.exists(MODEL_PATH):
 # Class names untuk model Retinopati
 CLASS_NAMES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
 
-# Model akan dimuat hanya saat diperlukan
+# Model akan dimuat di global scope
 model = None
 
 def load_model_from_file():
@@ -108,24 +105,36 @@ def preprocess_image(img_data):
         logger.error(f"Error saat preprocessing gambar: {str(e)}")
         return None
 
+# Inisialisasi aplikasi Flask
+app = Flask(__name__)
+CORS(app)  # Ini penting untuk integrasi dengan Node.js (cross-origin requests)
+
 # Route untuk health check - untuk integrasi dengan Node.js
 @app.route('/', methods=['GET'])
 def index():
     file_exists = os.path.exists(MODEL_PATH)
     file_size = os.path.getsize(MODEL_PATH) / (1024 * 1024) if file_exists else 0
     
-    # Membuat model dan menyimpan status, namun tanpa memuat model penuh
+    # Status model yang sebenarnya
     model_status = "not_loaded" if model is None else "loaded"
+    
+    # Mendapatkan informasi model
+    model_info = {
+        'exists': file_exists,
+        'path': MODEL_PATH,
+        'size_mb': round(file_size, 2),
+        'status': model_status
+    }
+    
+    # Tambahkan informasi input/output shape jika model sudah dimuat
+    if model is not None:
+        model_info['input_shape'] = str(model.input_shape)
+        model_info['output_shape'] = str(model.output_shape)
     
     return jsonify({
         'status': 'success',
         'message': 'API Retinopati Diabetik berjalan dengan baik',
-        'model_info': {
-            'exists': file_exists,
-            'path': MODEL_PATH,
-            'size_mb': round(file_size, 2),
-            'status': model_status
-        },
+        'model_info': model_info,
         'system_info': {
             'python_version': sys.version,
             'tensorflow_version': tf.__version__,
@@ -187,7 +196,7 @@ def predict():
                 'message': 'Gagal memproses gambar'
             }), 400
         
-        # 2. Memuat model jika belum dimuat
+        # 2. Memastikan model telah dimuat
         global model
         if model is None:
             logger.info("Model belum dimuat, mulai proses loading")
@@ -247,13 +256,19 @@ def predict():
             'message': f'Error saat memproses request: {str(e)}'
         }), 500
     finally:
-        # Clean up untuk mengurangi memory usage
-        logger.info("Membersihkan sesi TensorFlow")
-        tf.keras.backend.clear_session()
-        gc.collect()
+        # Tidak perlu membersihkan model, kita ingin mempertahankannya di memori
+        pass
+
+# Memuat model saat aplikasi dimulai
+logger.info("Mencoba memuat model saat startup aplikasi...")
+try:
+    # Memuat model saat startup
+    load_model_from_file()
+except Exception as e:
+    logger.error(f"Error saat memuat model pada startup: {str(e)}")
 
 if __name__ == '__main__':
     logger.info("Starting Flask app in development mode")
-    # Tidak memuat model saat startup untuk menghemat memori
+    # Port dan host untuk development
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port) 
