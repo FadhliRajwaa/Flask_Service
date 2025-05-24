@@ -27,6 +27,17 @@ services:
         value: 10000
       - key: MONGO_URI
         sync: false
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_DEBUG
+        value: 0
+      - key: GUNICORN_CMD_ARGS
+        value: "--log-level debug --timeout 600 --workers 1 --threads 1 --max-requests 1"
     healthCheckPath: /
+    buildFilter:
+      paths:
+        - app.py
+        - requirements.txt
+        - model-Retinopaty.h5
     buildpacks:
       - url: https://github.com/heroku/heroku-buildpack-apt 
