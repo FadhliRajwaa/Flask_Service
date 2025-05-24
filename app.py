@@ -23,7 +23,7 @@ db = client['retinopathy_prediction']
 predictions_collection = db['predictions']
 
 # Load Retinopathy model
-MODEL_PATH = os.path.join('model-Retinopaty.h5')
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'model-Retinopaty.h5')
 try:
     print(f"Loading model from: {MODEL_PATH}")
     model = load_model(MODEL_PATH)
@@ -146,5 +146,15 @@ def test_model():
             'message': 'Model failed to load'
         }), 500
 
+@app.route('/', methods=['GET'])
+def health_check():
+    """Simple health check endpoint"""
+    return jsonify({
+        'status': 'online',
+        'service': 'retinopathy-api',
+        'model_loaded': model is not None
+    })
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False) 

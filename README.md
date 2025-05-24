@@ -1,6 +1,6 @@
 # API Retinopati Diabetik
 
-API Flask untuk klasifikasi Retinopati Diabetik menggunakan model deep learning TensorFlow 2.19.0.
+API Flask untuk klasifikasi Retinopati Diabetik menggunakan model deep learning TensorFlow.
 
 ## Struktur Folder
 
@@ -9,9 +9,9 @@ backend/flask_service/
   ├── app.py                 # File utama aplikasi Flask
   ├── model-Retinopaty.h5    # Model deep learning untuk klasifikasi
   ├── requirements.txt       # Dependensi Python
-  ├── Procfile              # Konfigurasi untuk deployment
-  ├── render.yaml           # Konfigurasi untuk Render
-  └── README.md             # Dokumentasi
+  ├── Procfile               # Konfigurasi untuk deployment
+  ├── render.yaml            # Konfigurasi untuk Render
+  └── README.md              # Dokumentasi
 ```
 
 ## Penggunaan Lokal
@@ -38,43 +38,53 @@ python app.py
 ### 2. Prediksi Retinopati
 - **URL**: `/predict`
 - **Method**: `POST`
-- **Body**:
-```json
-{
-  "image": "BASE64_ENCODED_IMAGE"
-}
-```
+- **Body**: Form-data dengan key 'file' dan value berupa file gambar
 - **Response**:
 ```json
 {
-  "status": "success",
-  "prediction": {
-    "class": "Nama Kelas",
-    "class_id": 0,
-    "confidence": 0.95
-  }
+  "id": "prediction_id",
+  "class": "Nama Kelas",
+  "confidence": 0.95
 }
 ```
 
+### 3. Mendapatkan Daftar Prediksi
+- **URL**: `/predictions?page=1&limit=20`
+- **Method**: `GET`
+- **Response**: Daftar prediksi dengan pagination
+
+### 4. Statistik Prediksi
+- **URL**: `/stats`
+- **Method**: `GET`
+- **Response**: Statistik prediksi berdasarkan kelas dan waktu
+
+### 5. Test Model
+- **URL**: `/test-model`
+- **Method**: `GET`
+- **Response**: Status model dan ringkasan model
+
 ## Deployment ke Render
 
-1. Buat akun di [Render](https://render.com)
-2. Buat Web Service baru dan pilih "Build and deploy from a Git repository"
+1. Pastikan file `render.yaml` sudah ada dan benar
+2. Buat akun di [Render](https://render.com)
 3. Hubungkan dengan repository GitHub Anda
-4. Konfigurasi:
-   - **Name**: retinopathy-api
-   - **Environment**: Python
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `gunicorn app:app --timeout 180 --workers 1`
-   - **Plan**: Free (atau sesuai kebutuhan)
-   - **Advanced**:
-     - Add Environment Variable: `TF_CPP_MIN_LOG_LEVEL` = `2`
-     - Add Environment Variable: `PYTHON_VERSION` = `3.9.16`
-5. Klik "Create Web Service"
+4. Pilih "Blueprint" saat membuat service baru
+5. Render akan otomatis menggunakan konfigurasi dari `render.yaml`
+6. Tambahkan variabel lingkungan:
+   - `MONGO_URI`: URI koneksi MongoDB Anda
+7. Klik "Apply" untuk memulai deployment
 
-## Catatan Penting
+### Catatan Penting untuk Deployment
 
-- Model membutuhkan gambar fundus mata yang diproses dengan ukuran 224x224 pixel
-- Gambar harus dikirim dalam format base64
+- Pastikan model `model-Retinopaty.h5` ada dalam repository
+- Model berukuran besar, jadi pastikan disk storage di Render cukup (minimal 5GB)
+- Render akan menggunakan Python 3.9.16 sesuai konfigurasi
+- Gunakan MongoDB Atlas untuk database produksi
+
+## Catatan Teknis
+
+- Model membutuhkan gambar fundus mata dengan ukuran 224x224 pixel
 - Kelas output: ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR']
-- API menggunakan TensorFlow 2.19.0 dan NumPy 1.26.0+ 
+- API menggunakan TensorFlow dan Flask
+- Semua prediksi disimpan dalam database MongoDB
+- Tidak ada data dummy dalam aplikasi ini 

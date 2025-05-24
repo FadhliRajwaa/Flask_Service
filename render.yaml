@@ -13,7 +13,7 @@ services:
     disk:
       name: model-storage
       mountPath: /opt/render/project/src
-      sizeGB: 3
+      sizeGB: 5
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.16
@@ -25,5 +25,8 @@ services:
         value: true
       - key: PORT
         value: 10000
+      - key: MONGO_URI
+        sync: false
+    healthCheckPath: /
     buildpacks:
       - url: https://github.com/heroku/heroku-buildpack-apt 
