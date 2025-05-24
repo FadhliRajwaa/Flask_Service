@@ -63,8 +63,8 @@ try:
     print(f"Connecting to MongoDB: {MONGO_URI[:20]}...")
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     client.server_info()  # Validasi koneksi
-    db = client['retinopathy_prediction']
-    predictions_collection = db['predictions']
+db = client['retinopathy_prediction']
+predictions_collection = db['predictions']
     print("MongoDB connected successfully!")
 except Exception as e:
     print(f"MongoDB connection failed: {str(e)}")
@@ -199,8 +199,8 @@ def predict():
         
         if predictions_collection:
             try:
-                result = predictions_collection.insert_one(prediction_record)
-                prediction_id = str(result.inserted_id)
+        result = predictions_collection.insert_one(prediction_record)
+        prediction_id = str(result.inserted_id)
             except Exception as db_error:
                 print(f"Error saving to MongoDB: {str(db_error)}")
         
@@ -223,29 +223,29 @@ def get_predictions():
         return jsonify({'error': 'MongoDB not connected'}), 503
     
     try:
-        limit = int(request.args.get('limit', 20))
-        page = int(request.args.get('page', 1))
-        skip = (page - 1) * limit
+    limit = int(request.args.get('limit', 20))
+    page = int(request.args.get('page', 1))
+    skip = (page - 1) * limit
+    
+    # Get total count
+    total = predictions_collection.count_documents({})
+    
+    # Get predictions with pagination
+    cursor = predictions_collection.find({}).sort('timestamp', -1).skip(skip).limit(limit)
+    predictions = []
+    
+    for doc in cursor:
+        doc['_id'] = str(doc['_id'])
+        doc['timestamp'] = doc['timestamp'].isoformat()
+        predictions.append(doc)
         
-        # Get total count
-        total = predictions_collection.count_documents({})
-        
-        # Get predictions with pagination
-        cursor = predictions_collection.find({}).sort('timestamp', -1).skip(skip).limit(limit)
-        predictions = []
-        
-        for doc in cursor:
-            doc['_id'] = str(doc['_id'])
-            doc['timestamp'] = doc['timestamp'].isoformat()
-            predictions.append(doc)
-            
-        return jsonify({
-            'predictions': predictions,
-            'total': total,
-            'page': page,
-            'limit': limit,
-            'totalPages': (total + limit - 1) // limit
-        })
+    return jsonify({
+        'predictions': predictions,
+        'total': total,
+        'page': page,
+        'limit': limit,
+        'totalPages': (total + limit - 1) // limit
+    })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -255,27 +255,27 @@ def get_stats():
         return jsonify({'error': 'MongoDB not connected'}), 503
     
     try:
-        # Get counts by retinopathy type
-        pipeline = [
-            {"$group": {"_id": "$class", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}}
-        ]
-        
-        results = list(predictions_collection.aggregate(pipeline))
-        stats = {item['_id']: item['count'] for item in results}
-        
-        # Get total predictions
-        total = predictions_collection.count_documents({})
-        
-        # Get recent predictions (last 24 hours)
-        last_day = datetime.datetime.now() - datetime.timedelta(days=1)
-        recent = predictions_collection.count_documents({"timestamp": {"$gt": last_day}})
-        
-        return jsonify({
-            'by_class': stats,
-            'total': total,
-            'recent_24h': recent
-        })
+    # Get counts by retinopathy type
+    pipeline = [
+        {"$group": {"_id": "$class", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    results = list(predictions_collection.aggregate(pipeline))
+    stats = {item['_id']: item['count'] for item in results}
+    
+    # Get total predictions
+    total = predictions_collection.count_documents({})
+    
+    # Get recent predictions (last 24 hours)
+    last_day = datetime.datetime.now() - datetime.timedelta(days=1)
+    recent = predictions_collection.count_documents({"timestamp": {"$gt": last_day}})
+    
+    return jsonify({
+        'by_class': stats,
+        'total': total,
+        'recent_24h': recent
+    })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
