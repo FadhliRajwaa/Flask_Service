@@ -9,6 +9,7 @@ import logging
 import sys
 import gc
 import tensorflow as tf
+import psutil
 from tensorflow.keras import layers
 
 # Konfigurasi logging dengan format yang lebih jelas untuk Render
@@ -21,6 +22,14 @@ logger = logging.getLogger(__name__)
 # Log startup yang jelas
 logger.info("======= STARTING RETINOPATY-API SERVICE =======")
 logger.info(f"TensorFlow version: {tf.__version__}")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"NumPy version: {np.__version__}")
+
+# Log informasi sistem
+mem = psutil.virtual_memory()
+logger.info(f"Total memory: {mem.total / (1024 * 1024 * 1024):.2f} GB")
+logger.info(f"Available memory: {mem.available / (1024 * 1024 * 1024):.2f} GB")
+logger.info(f"Memory usage: {mem.percent}%")
 
 # Custom layer untuk kompatibilitas dengan model yang dibuat di versi TensorFlow yang berbeda
 class CustomInputLayer(tf.keras.layers.Layer):
@@ -70,7 +79,6 @@ def load_model_from_file():
         }
         
         # Log status memori sebelum memuat model
-        import psutil
         memory_before = psutil.virtual_memory()
         logger.info(f"Memory before loading: {memory_before.percent}% used")
         
@@ -95,8 +103,8 @@ def load_model_from_file():
                 # Coba buat model dari scratch berdasarkan dimensi
                 input_shape = (224, 224, 3)  # Ukuran umum untuk model retinopati
                 
-                # Memuat model sebagai full model
-                model = tf.keras.models.load_model(MODEL_PATH, compile=False, safe_mode=False)
+                # Memuat model sebagai full model dengan safe_mode=False untuk TF 2.14.0
+                model = tf.keras.models.load_model(MODEL_PATH, compile=False)
                 
             except Exception as e2:
                 logger.warning(f"Pendekatan 2 gagal: {str(e2)}")
@@ -115,7 +123,7 @@ def load_model_from_file():
                     
                 except Exception as e3:
                     logger.error(f"Semua pendekatan gagal. Pendekatan 3 error: {str(e3)}")
-                    raise Exception(f"Tidak dapat memuat model dengan semua pendekatan. Versi TensorFlow mungkin terlalu berbeda. Model dibuat dengan TF 2.19.0, server menggunakan {tf.__version__}")
+                    raise Exception(f"Tidak dapat memuat model dengan semua pendekatan. Versi TensorFlow mungkin terlalu berbeda. Model dibuat dengan TF versi lain, server menggunakan {tf.__version__}")
         
         # Log status memori setelah memuat model
         memory_after = psutil.virtual_memory()
@@ -353,12 +361,35 @@ def predict():
         pass
 
 # Memuat model saat aplikasi dimulai
-logger.info("Mencoba memuat model saat startup aplikasi...")
+logger.info("==================================================")
+logger.info("INISIALISASI APLIKASI: Mencoba memuat model saat startup...")
+logger.info("==================================================")
 try:
+    # Log status memori sebelum loading
+    mem_before = psutil.virtual_memory()
+    logger.info(f"[STARTUP] Memory sebelum loading model: {mem_before.percent}% used ({mem_before.available / (1024**3):.2f} GB available)")
+    
     # Memuat model saat startup
-    load_model_from_file()
+    success = load_model_from_file()
+    
+    # Log status memori setelah loading
+    mem_after = psutil.virtual_memory()
+    logger.info(f"[STARTUP] Memory setelah loading model: {mem_after.percent}% used ({mem_after.available / (1024**3):.2f} GB available)")
+    logger.info(f"[STARTUP] Perubahan penggunaan memori: {mem_after.percent - mem_before.percent}%")
+    
+    if success:
+        logger.info("==================================================")
+        logger.info("MODEL BERHASIL DIMUAT PADA STARTUP!")
+        logger.info("==================================================")
+    else:
+        logger.info("==================================================")
+        logger.info("MODEL GAGAL DIMUAT PADA STARTUP! AKAN DICOBA LAGI SAAT REQUEST PERTAMA")
+        logger.info("==================================================")
 except Exception as e:
     logger.error(f"Error saat memuat model pada startup: {str(e)}")
+    logger.error("==================================================")
+    logger.error("MODEL GAGAL DIMUAT PADA STARTUP! AKAN DICOBA LAGI SAAT REQUEST PERTAMA")
+    logger.error("==================================================")
 
 if __name__ == '__main__':
     logger.info("Starting Flask app in development mode")

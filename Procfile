@@ -1,1 +1,1 @@
-web: gunicorn app:app --log-level debug --timeout 300 --workers 1 --threads 2 --max-requests 2 --max-requests-jitter 1 --access-logfile - --error-logfile - 
+web: gunicorn app:app --log-level debug --timeout 600 --workers 1 --threads 1 --max-requests 1 --max-requests-jitter 0 --preload 

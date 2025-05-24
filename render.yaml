@@ -6,10 +6,8 @@ services:
     plan: free
     buildCommand: |
       pip install --upgrade pip
-      pip install tensorflow-io-gcs-filesystem==0.31.0
-      pip install tensorflow==2.14.0 --no-deps
       pip install -r requirements.txt
-    startCommand: gunicorn app:app --log-level debug --timeout 300 --workers 1 --threads 2 --max-requests 2 --max-requests-jitter 1 --access-logfile - --error-logfile -
+    startCommand: gunicorn app:app --log-level debug --timeout 600 --workers 1 --threads 1 --max-requests 1 --max-requests-jitter 0 --access-logfile - --error-logfile - --preload
     autoDeploy: true
     # Konfigurasi untuk model berukuran besar
     disk:
@@ -20,7 +18,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.9.16
       - key: TF_CPP_MIN_LOG_LEVEL
-        value: 1
+        value: 0
       - key: TF_FORCE_GPU_ALLOW_GROWTH
         value: true
       - key: PYTHONUNBUFFERED
