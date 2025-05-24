@@ -8,6 +8,7 @@ import os
 import datetime
 import sys
 import traceback
+import io
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from bson.objectid import ObjectId
@@ -16,7 +17,8 @@ from bson.objectid import ObjectId
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+# Aktifkan CORS dengan konfigurasi yang lebih permisif
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"])
 
 # Konfigurasi model dan status
 MODEL_LOADED = False
@@ -124,7 +126,15 @@ def predict():
         
         # Jika model dimuat, gunakan model untuk prediksi
         if MODEL_LOADED:
-            img = image.load_img(file, target_size=(224, 224))
+            # Konversi FileStorage ke BytesIO
+            file_bytes = file.read()
+            img_io = io.BytesIO(file_bytes)
+            
+            # Reset pointer file untuk penggunaan selanjutnya jika diperlukan
+            file.seek(0)
+            
+            # Gunakan BytesIO untuk load_img
+            img = image.load_img(img_io, target_size=(224, 224))
             img_array = prepare_image(img)
             preds = MODEL.predict(img_array)
             class_idx = np.argmax(preds[0])
