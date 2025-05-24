@@ -7,7 +7,7 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: gunicorn app:app --log-level debug --timeout 600 --workers 1 --threads 1 --max-requests 1 --max-requests-jitter 0 --access-logfile - --error-logfile - --preload
+    startCommand: gunicorn app:app --log-level debug --timeout 120 --workers 1 --threads 4 --max-requests 5 --max-requests-jitter 2 --access-logfile - --error-logfile - --keep-alive 5
     autoDeploy: true
     # Konfigurasi untuk model berukuran besar
     disk:
@@ -18,7 +18,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.9.16
       - key: TF_CPP_MIN_LOG_LEVEL
-        value: 0
+        value: 2
       - key: TF_FORCE_GPU_ALLOW_GROWTH
         value: true
       - key: PYTHONUNBUFFERED
@@ -32,8 +32,9 @@ services:
       - key: FLASK_DEBUG
         value: 0
       - key: GUNICORN_CMD_ARGS
-        value: "--log-level debug --timeout 600 --workers 1 --threads 1 --max-requests 1"
-    healthCheckPath: /
+        value: "--log-level debug --timeout 120 --workers 1 --threads 4 --max-requests 5 --keep-alive 5"
+    healthCheckPath: /health
+    healthCheckTimeout: 5
     buildFilter:
       paths:
         - app.py
